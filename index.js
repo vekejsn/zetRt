@@ -249,7 +249,7 @@ const loadGtfs = async () => {
         counter = 0;
 
         for (let row of stops) {
-            if (counter == 5000) {
+            if (counter == 1000) {
                 localStopsStr = localStopsStr.slice(0, -1);
                 await sqlite3.prepare(localStopsStr).run(localStopsValues);
                 localStopsStr = stopsStr;
