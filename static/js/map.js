@@ -24,8 +24,8 @@ async function initMap() {
         tileSize: 512, detectRetina: true,
         zoomOffset: -1
     }).addTo(map);*/
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '',
+    L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attribution">CARTO</a>',
         maxZoom: 19
     }).addTo(map);
 
@@ -114,11 +114,11 @@ async function generateVehicleMarkers() {
             // create a marker
             vehicle_markers[schedule] = await L.marker([vehicles[i].geometry.coordinates[1], vehicles[i].geometry.coordinates[0]], {
                 icon: L.divIcon({
-                    className: 'icon-vehicle',
+                    className: 'icon-vehicle' + (vehicles[i].properties.routeType == 3 ? ' bus' : vehicles[i].properties.routeType == 0 ? ' tram' : vehicles[i].properties.routeType == 1 ? ' subway' : vehicles[i].properties.routeType == 2 ? ' rail' : ''),
                     iconSize: [25, 25],
                     iconAnchor: [12, 12],
                     popupAnchor: [0, 0],
-                    html: `<p class="icon">${vehicles[i].properties.routeShortName}</p> <div class="tooltip-vehicle">${vehicles[i].properties.vehicleId}</div>`
+                    html: `<p class="icon">${vehicles[i].properties.routeShortName}</p> <div class="tooltip-vehicle"><small>VR</small> ${vehicles[i].properties.tripId.split("_")[2]}</div>`
                 })
             })
                 .bindTooltip(`<b>${vehicles[i].properties.vehicleId}</b> - ${vehicles[i].properties.routeShortName} ${vehicles[i].properties.routeLongName}`, {
@@ -148,11 +148,20 @@ async function generateVehicleMarkers() {
     setTimeout(generateVehicleMarkers, 20000);
 }
 
-async function generateArrivals(data, update) {
+let GLOBAL_TIME = 0;
+
+async function generateArrivals(data, update, time) {
+    if (!time) {
+        time = 3600;
+        GLOBAL_TIME = 3600;
+    } else {
+        time = GLOBAL_TIME;
+    }
     // check if the popup is already open
+    console.log(data)
     let is_open = document.getElementById(`bottom-data`).hidden;
     // stop any previous fetches
-    let arrivals = await fetch(`/stops/${data.stop_id}/trips?current=true`);
+    let arrivals = await fetch(`/stops/${data.stop_id}/trips?current=true&time=${time}`);
     arrivals = await arrivals.json();
     // get arrivals
     let is_open2 = document.getElementById(`bottom-data`).hidden;
@@ -174,20 +183,37 @@ async function generateArrivals(data, update) {
     select.id = `select-${data.stop_id}`;
     select.onchange = async (e) => {
         let selected = document.getElementById(`select-${data.stop_id}`).value;
-        let selectedData = stopData.find(stop => stop.stop_id === selected);
+        let selectedData = stopData.find(stop => stop.properties.id == selected);
         // center map slightly below marker with selected stop_id
-        map.panTo([selectedData.stop_lat - 0.0003, selectedData.stop_lon], {
+        map.panTo([selectedData.geometry.coordinates[1] - 0.0003, selectedData.geometry.coordinates[0]], {
             animate: true
         });
         evalHistory.push(`generateArrivals(${selectedData}, false)`);
-        generateArrivals(selectedData);
+        generateArrivals({
+            stop_id: selectedData.properties.id,
+            stop_name: selectedData.properties.name,
+            parent_station: selectedData.properties.parentId
+        }, false, 3600);
     }
     routeInfo.appendChild(select);
+    // add button to extend time
+    let button = document.createElement('button');
+    button.className = 'btn btn-primary';
+    button.innerHTML = `Prikaži polaske za +1h (trenutno ${time / 3600}h)`;
+    button.onclick = async (e) => {
+        // add 1h to time
+        GLOBAL_TIME += 3600;
+        // refresh
+        evalHistory.push(`generateArrivals(${data}, false)`);
+        generateArrivals(data, false, GLOBAL_TIME);
+    }
+    routeInfo.appendChild(button);  
     // options listed should be all stations with same parent_Station
     let options = [];
     for (let i in stopData) {
-        if (stopData[i].parent_station === data.parent_station && stopData[i].stop_id !== data.stop_id) {
-            await options.push(`<option value="${stopData[i].stop_id}">${stopData[i].stop_name} (${stopData[i].stop_id})</option>`);
+        if (stopData[i].properties.parentId == data.parent_station && stopData[i].properties.id != data.stop_id) {
+            console.log(stopData[i])
+            await options.push(`<option value="${stopData[i].properties.id}">${stopData[i].properties.name} (${stopData[i].properties.id})</option>`);
         }
     }
     // set the first option to be the current stop
@@ -210,52 +236,86 @@ async function generateArrivals(data, update) {
             }
         }, 10000);
     }
-    for (let i in arrivals) {
-        for (let j in arrivals[i]) {
+    let route_variation = {};
+    // sort arrivals by route_id and trip_headsign
+    arrivals = arrivals.sort((a, b) => parseInt(a.routeId) - parseInt(b.routeId) || a.tripHeadsign.localeCompare(b.tripHeadsign));
+    for (let arrival of arrivals) {
+        if (!route_variation[arrival.routeId + arrival.tripHeadsign]) {
+            route_variation[arrival.routeId + arrival.tripHeadsign] = document.createElement('div');
+            route_variation[arrival.routeId + arrival.tripHeadsign].className = 'route-arrivals';
             let div_route = document.createElement('div');
             div_route.className = 'route';
             let div_route_name = document.createElement('div');
             div_route_name.className = 'route-name';
-            div_route_name.innerHTML = `<span class="route_name_number">${i}</span> <span>${j}</span>`;
+            div_route_name.innerHTML = `<span class="route_name_number">${arrival.routeShortName}</span> <span>${arrival.tripHeadsign}</span>`;
             div_route.appendChild(div_route_name);
-            let div_route_arrivals = document.createElement('div');
-            div_route_arrivals.className = 'route-arrivals';
-            for (let k in arrivals[i][j]) {
-                let div_arrival = document.createElement('div');
-                div_arrival.className = 'arrival';
-                let time = arrivals[i][j][k].departure_time.substring(0, 5);
-                // if first two characters are > 23, remove 24h
-                if (time.substring(0, 2) > '23') {
-                    time_temp = parseInt(time.substring(0, 2)) - 24;
-                    // if time_temp is less than 10, add 0 before
-                    if (time_temp < 10) {
-                        time_temp = '0' + time_temp;
-                    }
-                    time = time_temp + ":" + time.substring(3);
-
-                }
-                div_arrival.innerHTML = `<span style="pointer-events: none;">${time}</span>`;
-                div_arrival.id = await arrivals[i][j][k].trip_id;
-                // check if there is live parameter
-                if (arrivals[i][j][k].live) {
-                    // add <i class="bi bi-broadcast blink"></i>
-                    div_arrival.innerHTML += ` <i class="bi bi-broadcast blink" style="pointer-events: none;"></i>`;
-                    // in next line add font size 0.7rem params vehicle and trip_id[2]
-                    div_arrival.innerHTML += `<br><span style="font-size: 0.7rem; pointer-events: none;">${arrivals[i][j][k].vehicle}/${arrivals[i][j][k].trip_id.split("_")[2]}</span>`;
-                } else {
-                    // add <i class="bi bi-clock"></i> and in next row trip_id[2]
-                    div_arrival.innerHTML += ` <i class="bi bi-clock" style="pointer-events: none;"></i><br><span style="font-size: 0.7rem; pointer-events: none;">${arrivals[i][j][k].vehicle ? arrivals[i][j][k].vehicle : " - "}/${arrivals[i][j][k].trip_id.split("_")[2]}</span>`;
-                }
-                div_route_arrivals.appendChild(div_arrival);
-                div_arrival.addEventListener('click', e => {
-                    // add the following to the history
-                    evalHistory.push(`generateTripDetails('${e.target.id}', true)`);
-                    generateTripDetails(e.target.id, true)
-                });
-            }
-            div_route.appendChild(div_route_arrivals);
+            route_variation[arrival.routeId + arrival.tripHeadsign].appendChild(div_route);
             routeInfo.appendChild(div_route);
+            let div_route_arrivals = route_variation[arrival.routeId + arrival.tripHeadsign];
+            div_route.appendChild(div_route_arrivals);
         }
+        let div_arrival = document.createElement('div');
+        div_arrival.className = 'arrival';
+        let time = new Date(arrival.departureTime * 1000).toISOString().substr(11, 5);
+        let originalTime = new Date((arrival.departureTime - arrival.departureDelay) * 1000).toISOString().substr(11, 5);
+        div_arrival.innerHTML = `<span style="pointer-events: none;">${originalTime != time ? `<small class="crossed-out">${originalTime}</small> ${time}` : time}</span>`;
+        if (arrival.realTime) {
+            div_arrival.innerHTML += ` <i class="bi bi-broadcast blink" style="pointer-events: none;"></i>`;
+        } else {
+            div_arrival.innerHTML += ` <i class="bi bi-clock" style="pointer-events: none;"></i>`;
+        }
+        div_arrival.innerHTML += `<br><span style="font-size: 0.7rem; pointer-events: none;">VR ${arrival.tripId.split("_")[2]} / XXX</span>`;
+        div_arrival.id = await arrival.tripId;
+        div_arrival.addEventListener('click', e => {
+            // add the following to the history
+            evalHistory.push(`generateTripDetails('${e.target.id}', true)`);
+            generateTripDetails(e.target.id, true)
+        });
+        route_variation[arrival.routeId + arrival.tripHeadsign].appendChild(div_arrival);
+
+        /*let div_route = document.createElement('div');
+        div_route.className = 'route';
+        let div_route_name = document.createElement('div');
+        div_route_name.className = 'route-name';
+        div_route_name.innerHTML = `<span class="route_name_number">${i}</span> <span>${j}</span>`;
+        div_route.appendChild(div_route_name);
+        let div_route_arrivals = document.createElement('div');
+        div_route_arrivals.className = 'route-arrivals';
+        for (let k in arrivals[i][j]) {
+            let div_arrival = document.createElement('div');
+            div_arrival.className = 'arrival';
+            let time = arrivals[i][j][k].departure_time.substring(0, 5);
+            // if first two characters are > 23, remove 24h
+            if (time.substring(0, 2) > '23') {
+                time_temp = parseInt(time.substring(0, 2)) - 24;
+                // if time_temp is less than 10, add 0 before
+                if (time_temp < 10) {
+                    time_temp = '0' + time_temp;
+                }
+                time = time_temp + ":" + time.substring(3);
+
+            }
+            div_arrival.innerHTML = `<span style="pointer-events: none;">${time}</span>`;
+            div_arrival.id = await arrivals[i][j][k].trip_id;
+            // check if there is live parameter
+            if (arrivals[i][j][k].live) {
+                // add <i class="bi bi-broadcast blink"></i>
+                div_arrival.innerHTML += ` <i class="bi bi-broadcast blink" style="pointer-events: none;"></i>`;
+                // in next line add font size 0.7rem params vehicle and trip_id[2]
+                div_arrival.innerHTML += `<br><span style="font-size: 0.7rem; pointer-events: none;">${arrivals[i][j][k].vehicle}/${arrivals[i][j][k].trip_id.split("_")[2]}</span>`;
+            } else {
+                // add <i class="bi bi-clock"></i> and in next row trip_id[2]
+                div_arrival.innerHTML += ` <i class="bi bi-clock" style="pointer-events: none;"></i><br><span style="font-size: 0.7rem; pointer-events: none;">${arrivals[i][j][k].vehicle ? arrivals[i][j][k].vehicle : " - "}/${arrivals[i][j][k].trip_id.split("_")[2]}</span>`;
+            }
+            div_route_arrivals.appendChild(div_arrival);
+            div_arrival.addEventListener('click', e => {
+                // add the following to the history
+                evalHistory.push(`generateTripDetails('${e.target.id}', true)`);
+                generateTripDetails(e.target.id, true)
+            });
+        }
+        div_route.appendChild(div_route_arrivals);
+        routeInfo.appendChild(div_route);*/
     }
     bottomData.hidden = false;
 
@@ -263,7 +323,7 @@ async function generateArrivals(data, update) {
         // check if there is a element with id stop_id
         if (document.getElementById(data.stop_id)) {
             // refresh
-            generateArrivals(data);
+            generateArrivals(data, false, time);
         }
     }, 10000);
 }
@@ -291,20 +351,20 @@ async function generateRouteSchedule(route_id, bool) {
 
     }
     // fetch /lines/schedules/route_id
-    let response = await fetch(`/lines/schedules/${route_id}`).then(res => res.json());
+    let response = await fetch(`/routes/${route_id}/trips`).then(res => res.json());
     if (bool == true) {
         // check if there is a element with id route-info-${route_id}, if no, return
         if (!document.getElementById(`route-info-${route_id}`)) {
             return;
         }
     }
-    let data = response.data.trips;
-    let route = routes.find(route => route.route_id == route_id);
+    let data = response;
+    let route = routes.find(route => route.routeId == route_id);
     //console.log(data);
     // group response by response[].trip_headsign
     let grouped = data.reduce((acc, cur) => {
-        acc[cur.trip_headsign] = acc[cur.trip_headsign] || [];
-        acc[cur.trip_headsign].push(cur);
+        acc[cur.tripHeadsign] = acc[cur.tripHeadsign] || [];
+        acc[cur.tripHeadsign].push(cur);
         return acc;
     }, {});
     //console.log(grouped);
@@ -312,8 +372,8 @@ async function generateRouteSchedule(route_id, bool) {
     routeInfo.className = 'route-info';
     routeInfo.id = `route-info-${route_id}`;
     routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true; document.getElementById('bottom-data').innerHTML='';"><i class="bi bi-x-lg"></i></div>`;
-    routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Vozni red za liniju ${route_id}</span><br>`
-    routeInfo.innerHTML += `<span style="font-size:1.2rem"><span class="route_name_number">${route_id}</span> ${route.route_long_name}</span>`;
+    routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Vozni red za liniju ${route.routeShortName}</span><br>`
+    routeInfo.innerHTML += `<span style="font-size:1.2rem"><span class="route_name_number">${route.routeShortName}</span> ${route.routeLongName}</span>`;
     routeInfo.innerHTML += `<hr>`;
     // create three tabs for the schedule
     //let ul = document.createElement('ul');
@@ -361,6 +421,8 @@ async function generateRouteSchedule(route_id, bool) {
         //console.log(grouped_i);
         let grouped_by_hour = {};
         for (let i in grouped_i) {
+            console.log(grouped_i[i]);
+            grouped_i[i].departure_time = new Date(grouped_i[i].startTime * 1000).toISOString().substr(11, 5);
             grouped_by_hour[grouped_i[i].departure_time.split(":")[0]] = grouped_by_hour[grouped_i[i].departure_time.split(":")[0]] || [];
             grouped_by_hour[grouped_i[i].departure_time.split(":")[0]].push(grouped_i[i]);
         }
@@ -400,12 +462,12 @@ async function generateRouteSchedule(route_id, bool) {
             td2.style.flexDirection = "row";
             td2.style.flexWrap = "wrap";
             for (let k in grouped_by_hour[j]) {
-                if (grouped_by_hour[j][k].gtfs_rt_trip) {
-                    td2.innerHTML += `<ar class="arrivalar" id="${grouped_by_hour[j][k].trip_id}" onclick="generateTripDetails('${grouped_by_hour[j][k].trip_id}')"><time>&nbsp;${grouped_by_hour[j][k].departure_time.split(":")[1]}&nbsp</time>
-                    <span class="blink" style="font-size:0.75rem">${grouped_by_hour[j][k].block_id}</span></ar>`;
+                if (grouped_by_hour[j][k].realTime) {
+                    td2.innerHTML += `<ar class="arrivalar" id="${grouped_by_hour[j][k].tripId}" onclick="generateTripDetails('${grouped_by_hour[j][k].tripId}')"><time>&nbsp;${grouped_by_hour[j][k].departure_time.split(":")[1]}&nbsp</time>
+                    <span class="blink" style="font-size:0.75rem">${grouped_by_hour[j][k].blockId}</span></ar>`;
                 } else {
-                    td2.innerHTML += `<ar class="arrivalar" id="${grouped_by_hour[j][k].trip_id}" onclick="generateTripDetails('${grouped_by_hour[j][k].trip_id}')"><time>&nbsp;${grouped_by_hour[j][k].departure_time.split(":")[1]}&nbsp</time>
-                    <span style="font-size:0.75rem">${grouped_by_hour[j][k].block_id}</span></ar>`;
+                    td2.innerHTML += `<ar class="arrivalar" id="${grouped_by_hour[j][k].tripId}" onclick="generateTripDetails('${grouped_by_hour[j][k].tripId}')"><time>&nbsp;${grouped_by_hour[j][k].departure_time.split(":")[1]}&nbsp</time>
+                    <span style="font-size:0.75rem">${grouped_by_hour[j][k].blockId}</span></ar>`;
                 }
             }
             tr.appendChild(td);
@@ -458,7 +520,7 @@ async function generateTripDetails(trip_id, location_bool) {
         polylineArray.push([polylineData[i][1], polylineData[i][0]]);
     }
 
-    let polylineObject = L.polyline(polylineArray, { color: 'blue' }).addTo(polylineLayer);
+    let polylineObject = await L.polyline.antPath(polylineArray, { "delay": 4000, color: '#1264AB', weight: 6, opacity: 0.5, smoothFactor: 1 }).addTo(polylineLayer);
 
     let data = await response.json();
     //(data);
@@ -470,7 +532,7 @@ async function generateTripDetails(trip_id, location_bool) {
     routeInfo.id = `route-info-${trip_id}`;
     bottomData.appendChild(routeInfo);
     routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true; document.getElementById('bottom-data').innerHTML='';"><i class="bi bi-x-lg"></i></div>`;
-    routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Linija ${data.routeShortName} / VR ${data.tripId.split("_")[2]} / Polazak ${data.tripId.split("_").pop()}</span><br>`
+        routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Linija ${data.routeShortName} / VR ${data.blockId} / Polazak ${data.tripId.split("_").pop()}</span><br>`
     routeInfo.innerHTML += `<span style="font-size:1.2rem"><span class="route_name_number">${data.routeShortName}</span> <span>${data.tripHeadsign}</span></span>`;
     routeInfo.innerHTML += `<br>`;
     let routeScheduleDiv = `<button class="route-schedule" onclick="generateRouteSchedule('${data.routeShortName}', false)"><span style="font-size:0.8rem">Pogledaj VR </span> <i class="bi bi-calendar-event"></i></button>`;
@@ -538,6 +600,7 @@ async function generateTripDetails(trip_id, location_bool) {
                 animate: true
             }, 19);
             generateArrivals(e.target.data);
+            polylineLayer.clearLayers();
         });
         // add
         stationInfo.appendChild(div_station);
@@ -545,6 +608,7 @@ async function generateTripDetails(trip_id, location_bool) {
     document.getElementById('bottom-data').hidden = false;
     routeScheduleDiv.onclick = async (e) => {
         console.log(e.target.data);
+        polylineLayer.clearLayers();
         generateRouteSchedule(e.target.data.route_id, false);
     }
     // after 10s check if there is a element with id stop_id
@@ -574,11 +638,11 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
         // check if stop_id or stop_name contains search
         let results = await stopData.filter(stop => {
             // replace all chars ŠĐČĆŽ with SDCZ
-            let stop_name = stop.stop_name.toUpperCase().replace(/Š/g, 'S').replace(/Đ/g, 'D').replace(/Č/g, 'C').replace(/Ć/g, 'C').replace(/Ž/g, 'Z');
+            let stop_name = stop.properties.name.toUpperCase().replace(/Š/g, 'S').replace(/Đ/g, 'D').replace(/Č/g, 'C').replace(/Ć/g, 'C').replace(/Ž/g, 'Z');
             // remove spaces and make uppercase
             stop_name = stop_name.replace(/\s/g, '').toUpperCase();
             // if stop_id or stop_name contains search, return true
-            return stop_name.includes(search) || stop.stop_id.includes(search);
+            return stop_name.includes(search) || stop.properties.id.includes(search);
         });
         // also add to results, vehicle_id's
         let vehicle_results = await vehicle_markers.filter(vehicle => {
@@ -588,11 +652,11 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
         // also add to results, route_id's, and route_long_name's
         let route_results = await routes.filter(route => {
             // replace all chars ŠĐČĆŽ with SDCZ
-            let route_long_name = route.route_long_name.toUpperCase().replace(/Š/g, 'S').replace(/Đ/g, 'D').replace(/Č/g, 'C').replace(/Ć/g, 'C').replace(/Ž/g, 'Z');
+            let route_long_name = route.routeLongName.toUpperCase().replace(/Š/g, 'S').replace(/Đ/g, 'D').replace(/Č/g, 'C').replace(/Ć/g, 'C').replace(/Ž/g, 'Z');
             // remove spaces and make uppercase
             route_long_name = route_long_name.replace(/\s/g, '').toUpperCase();
             // if route_id or route_long_name contains search, return true
-            return route_long_name.includes(search) || route.route_id.toString().includes(search);
+            return route_long_name.includes(search) || route.routeShortName.toString().includes(search);
         });
         //console.log(stopData, results)
         // if there is no results, show nothing
@@ -610,13 +674,13 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
             // create li
             let li = document.createElement('li');
             li.className = 'list-group-item';
-            li.innerHTML = `<span>${results[i].stop_name} <small>${results[i].stop_id}</small></span>`;
+            li.innerHTML = `<span>${results[i].properties.name} <small>${results[i].properties.id}</small></span>`;
             li.data = {
-                stop_id: results[i].stop_id,
-                stop_name: results[i].stop_name,
-                parent_station: results[i].parent_station,
-                stop_lat: results[i].stop_lat,
-                stop_lon: results[i].stop_lon
+                stop_id: results[i].properties.id,
+                stop_name: results[i].properties.name,
+                parent_station: results[i].properties.parentId,
+                stop_lat: results[i].geometry.coordinates[1],
+                stop_lon: results[i].geometry.coordinates[0]
             }
             // add event listener to li
             li.addEventListener('click', async () => {
@@ -625,7 +689,7 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
                 // set search input to empty
                 document.getElementById('search-input').value = '';
                 // center on stop
-                map.setView([results[i].stop_lat - 0.0003, results[i].stop_lon], 19);
+                map.setView([results[i].geometry.coordinates[1] - 0.0003, results[i].geometry.coordinates[0]], 19);
                 // generate arrivals
                 evalHistory.push(`generateArrivals(${li.data}, false)`);
                 generateArrivals(li.data);
@@ -651,6 +715,7 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
                 map.setView(vehicle_markers[e.target.data.vehicle_id].getLatLng(), 19);
                 // generate arrivals
                 evalHistory.push(`generateTripDetails(${li.data.trip_id}, true)`);
+                polylineLayer.clearLayers();
                 generateTripDetails(li.data.trip_id, true);
             });
             // add li to ul
@@ -661,7 +726,7 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
             // create li
             let li = document.createElement('li');
             li.className = 'list-group-item';
-            li.innerHTML = `<span style="pointer-events: none;"><span class="route_name_number">${route_results[i].route_id}</span> ${route_results[i].route_long_name}</span><br>`;
+            li.innerHTML = `<span style="pointer-events: none;"><span class="route_name_number">${route_results[i].routeShortName}</span> ${route_results[i].routeLongName}</span><br>`;
             li.data = await route_results[i];
             // add event listener to li
             li.addEventListener('click', async (e) => {
@@ -670,8 +735,9 @@ document.getElementById('search-input').addEventListener('keyup', async (e) => {
                 // set search input to empty
                 document.getElementById('search-input').value = '';
                 // generate arrivals
-                evalHistory.push(`generateRouteSchedule(${li.data.route_id}, false)`);
-                generateRouteSchedule(li.data.route_id, false);
+                evalHistory.push(`generateRouteSchedule(${li.data.routeId}, false)`);
+                polylineLayer.clearLayers();
+                generateRouteSchedule(li.data.routeId, false);
             });
             // add li to ul
             ul.appendChild(li);

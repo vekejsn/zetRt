@@ -354,6 +354,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                         departureTime: stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0),
                         arrivalDelay: stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0,
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
+                        blockId: stopTime.block_id,
                         realTime: true
                     });
                 }
@@ -379,6 +380,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                     departureTime: stopTime.departure_time_int,
                     arrivalDelay: 0,
                     departureDelay: 0,
+                    blockId: stopTime.block_id,
                     realTime: false
                 });
             }
@@ -439,6 +441,7 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             tripHeadsign: trip.trip_headsign,
             directionId: trip.direction_id,
             stopTimes: formattedStopTimes,
+            blockId: trip.block_id,
             realTime: RT_DATA.find(rt => rt.trip.tripId == tripId) ? true : false
         });
     } catch (e) {
@@ -538,7 +541,8 @@ app.get('/routes/:id/trips', cache('30 seconds'), async (req, res) => {
                 tripHeadsign: trip.trip_headsign,
                 startTime: startTimes.find(st => st.trip_id == trip.trip_id).start_time,
                 endTime: endTimes.find(et => et.trip_id == trip.trip_id).end_time,
-                realTime: rt ? true : false
+                realTime: rt ? true : false,
+                blockId: trip.block_id
             });
         }
         // sort by start time
@@ -602,7 +606,7 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
     const currentStopTime = tripStopTimes[currentStopTimeIndex - 1] || tripStopTimes[0];
     const nextStopTime = tripStopTimes[currentStopTimeIndex] || tripStopTimes[tripStopTimes.length - 1];
 
-    const distance = interpolateDistance(currentStopTime, nextStopTime, currentTime);
+    const distance = interpolateDistance(currentStopTime, nextStopTime, currentTime, RT_UPDATE);
     const tripShape = shapesMap[trip.shape_id];
     const { lat, lon, previousShapePoint, nextShapePoint } = interpolatePosition(tripShape, distance);
     const bearing = calculateBearing(previousShapePoint, nextShapePoint);
@@ -611,27 +615,16 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
 }
 
 function findStopTimeIndex(tripStopTimes, currentTime, RT_UPDATE) {
-    let low = 0;
-    let high = tripStopTimes.length - 1;
-
-    while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const midStopTime = tripStopTimes[mid];
-
-        if (midStopTime.departure_time_int === currentTime - RT_UPDATE.delay) {
-            return mid;
-        } else if (midStopTime.departure_time_int < currentTime - RT_UPDATE.delay) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+    for (let i = 0; i < tripStopTimes.length; i++) {
+        let stopTime = tripStopTimes[i];
+        if (stopTime.departure_time_int + (RT_UPDATE.delay || 0) > currentTime) {
+            return i;
         }
     }
-
-    return low;
 }
 
-function interpolateDistance(currentStopTime, nextStopTime, currentTime) {
-    const timeFraction = (currentTime - currentStopTime.departure_time_int) / (nextStopTime.departure_time_int - currentStopTime.departure_time_int);
+function interpolateDistance(currentStopTime, nextStopTime, currentTime, RT_UPDATE) {
+    const timeFraction = (currentTime - currentStopTime.departure_time_int - (RT_UPDATE.delay || 0)) / (nextStopTime.departure_time_int - currentStopTime.departure_time_int - (RT_UPDATE.delay || 0));
     return currentStopTime.shape_dist_traveled + timeFraction * (nextStopTime.shape_dist_traveled - currentStopTime.shape_dist_traveled);
 }
 
@@ -813,10 +806,10 @@ async function getRtData() {
 // mount static files in folder static
 app.use(express.static('static'));
 
-app.listen(port, () => {
+app.listen(port, async () => {
+    //await loadGtfs();
     createTables();
     getRtData();
     preloadData();
     console.log(`Server running on port ${port}`);
-    //loadGtfs();
 });
