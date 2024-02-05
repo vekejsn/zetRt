@@ -70,3 +70,9 @@ CREATE TABLE IF NOT EXISTS StopTimes(
     shape_dist_traveled REAL,
     closest_shape_pt_sequence INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS Logs (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    log_message TEXT
+);
