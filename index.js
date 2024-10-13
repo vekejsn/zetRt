@@ -786,8 +786,12 @@ async function getCalendarIds() {
     let calendar = await sqlite3.prepare('SELECT * FROM Calendar').all();
     let calendar_dates = await sqlite3.prepare('SELECT * FROM CalendarDates').all();
     let validCalendarIds = [];
-    let today = luxon.DateTime.now().toFormat('yyyyMMdd');
-    let dayOfWeek = luxon.DateTime.now().toFormat('E');
+    let today = luxon.DateTime.now({
+        zone: 'Europe/Zagreb'
+    }).toFormat('yyyyMMdd');
+    let dayOfWeek = luxon.DateTime.now({
+        zone: 'Europe/Zagreb'
+    }).toFormat('E');
     console.log('Today is ' + dayOfWeek, today);
     for (let cal of calendar) {
         if (cal[dayOfWeek] == 1 && cal.start_date <= today && cal.end_date >= today) {
