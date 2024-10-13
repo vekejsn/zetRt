@@ -832,6 +832,7 @@ async function getRtData() {
                 }
             }
             RT_DATA = data;
+            console.log('Updated RT data - ' + RT_DATA.length + ' updates');
         } catch (e) {
             insertIntoLog(e.message + ' ' + e.stack);
             console.error(e);
