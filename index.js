@@ -353,9 +353,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
         let calendarIds = await getCalendarIds();
         let stopTimes = await sqlite3.prepare('SELECT * FROM StopTimes JOIN Trips ON StopTimes.trip_id = Trips.trip_id JOIN Routes on Routes.route_id = Trips.route_id WHERE stop_id = ? AND service_id IN (' + calendarIds.map(() => '?').join(',') + ')').all([stopId, ...calendarIds]);
         let formattedStopTimes = [];
-        let secondsFromMidnight = luxon.DateTime.now({
-            zone: 'Europe/Zagreb'
-        }).toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        let secondsFromMidnight = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
         if (req.query.time) {
             req.query.time = parseInt(req.query.time);
         }
@@ -543,9 +541,7 @@ app.get('/routes/:id/trips', cache('30 seconds'), async (req, res) => {
         let startTimes = await sqlite3.prepare('SELECT trip_id, MIN(departure_time_int) as start_time FROM StopTimes WHERE trip_id IN (' + trips.map(() => '?').join(',') + ') GROUP BY trip_id').all(trips.map(trip => trip.trip_id));
         let endTimes = await sqlite3.prepare('SELECT trip_id, MAX(departure_time_int) as end_time FROM StopTimes WHERE trip_id IN (' + trips.map(() => '?').join(',') + ') GROUP BY trip_id').all(trips.map(trip => trip.trip_id));
         let tripsFormatted = [];
-        let secondsFromMidnight = luxon.DateTime.now({
-            zone: 'Europe/Zagreb'
-        }).toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        let secondsFromMidnight = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
         if (req.query.time) {
             req.query.time = parseInt(req.query.time);
         }
@@ -728,10 +724,8 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {
         let calendar = await getCalendarIds();
     
-        let currentTime = luxon.DateTime.now({
-            zone: 'Europe/Zagreb'
-        }).toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
-        console.log('Current time', currentTime, luxon.DateTime.now({ zone: 'Europe/Zagreb' }).toFormat('HH:mm:ss'));
+        let currentTime = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        console.log('Current time', currentTime, luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss'));
     
         let geoJson = {
             type: "FeatureCollection",
@@ -787,12 +781,8 @@ async function getCalendarIds() {
     let calendar = await sqlite3.prepare('SELECT * FROM Calendar').all();
     let calendar_dates = await sqlite3.prepare('SELECT * FROM CalendarDates').all();
     let validCalendarIds = [];
-    let today = luxon.DateTime.now({
-        zone: 'Europe/Zagreb'
-    }).toFormat('yyyyMMdd');
-    let dayOfWeek = luxon.DateTime.now({
-        zone: 'Europe/Zagreb'
-    }).toFormat('E');
+    let today = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
+    let dayOfWeek = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('E');
     console.log('Today is ' + dayOfWeek, today);
     for (let cal of calendar) {
         if (cal[dayOfWeek] == 1 && cal.start_date <= today && cal.end_date >= today) {
