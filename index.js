@@ -813,8 +813,8 @@ async function getRtData() {
 app.use(express.static('static'));
 
 app.listen(port, async () => {
+    await createTables();
     await loadGtfs();
-    createTables();
     getRtData();
     preloadData();
     console.log(`Server running on port ${port}`);
