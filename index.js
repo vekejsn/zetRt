@@ -728,7 +728,9 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {
         let calendar = await getCalendarIds();
     
-        let currentTime = luxon.DateTime.now().toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        let currentTime = luxon.DateTime.now({
+            zone: 'Europe/Zagreb'
+        }).toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
     
         let geoJson = {
             type: "FeatureCollection",
