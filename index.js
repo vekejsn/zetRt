@@ -100,7 +100,7 @@ app.use((req, res, next) => {
 });
 
 const CONFIG = {
-    GTFS_UNZIPPED_BASE: 'http://gtfs.zet.mirinda.ts.pirnet.si/mod/',
+    GTFS_UNZIPPED_BASE: 'http://gtfs.mirinda.ts.pirnet.si/gtfs-out/',
     GTFS_RT_TRIP_UPDATES: 'https://zet.hr/gtfs',
 }
 
@@ -597,7 +597,7 @@ app.get('/routes/:id/shapes', cache('1 day'), async (req, res) => {
 
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);
-    let delay = RT_UPDATE ? (RT_UPDATE.stopTimeUpdate[0].departure?.delay || RT_UPDATE.stopTimeUpdate[0].arrival?.delay || 0) : 0;
+    let delay = RT_UPDATE ? (RT_UPDATE.stopTimeUpdate[0]?.departure?.delay || RT_UPDATE.stopTimeUpdate[0]?.arrival?.delay || 0) : 0;
     return { delay, realTime: !!RT_UPDATE };
 }
 
@@ -606,7 +606,13 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
     const currentStopTime = tripStopTimes[currentStopTimeIndex - 1] || tripStopTimes[0];
     const nextStopTime = tripStopTimes[currentStopTimeIndex] || tripStopTimes[tripStopTimes.length - 1];
 
-    const distance = interpolateDistance(currentStopTime, nextStopTime, currentTime, RT_UPDATE);
+    let distance = interpolateDistance(currentStopTime, nextStopTime, currentTime, RT_UPDATE);
+    if (distance < 0) {
+        distance = 0;
+    }
+    if (distance > tripStopTimes[tripStopTimes.length - 1].shape_dist_traveled) {
+        distance = tripStopTimes[tripStopTimes.length - 1].shape_dist_traveled;
+    }
     const tripShape = shapesMap[trip.shape_id];
     const { lat, lon, previousShapePoint, nextShapePoint } = interpolatePosition(tripShape, distance);
     const bearing = calculateBearing(previousShapePoint, nextShapePoint);
@@ -790,7 +796,7 @@ async function getRtData() {
             let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
             let data = [];
             for (let entity of feed.entity) {
-                if (entity.tripUpdate) {
+                if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
                     data.push(entity.tripUpdate);
                 }
             }
@@ -807,7 +813,7 @@ async function getRtData() {
 app.use(express.static('static'));
 
 app.listen(port, async () => {
-    //await loadGtfs();
+    await loadGtfs();
     createTables();
     getRtData();
     preloadData();

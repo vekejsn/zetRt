@@ -96,6 +96,23 @@ async function generateVehicleMarkers() {
             continue;
         }
         if (vehicle_markers[schedule] && !processedVehicles.includes(schedule)) {
+            // update the marker icon
+            let icon_class = 'icon-vehicle ';
+            if (vehicles[i].properties.routeType == 3) {
+                icon_class += 'bus';
+            } else if (vehicles[i].properties.routeType == 0) {
+                icon_class += 'tram';
+            }
+            if (!vehicles[i].properties.realTime) {
+                icon_class += ' static';
+            }
+            vehicle_markers[schedule].setIcon(L.divIcon({
+                className: icon_class,
+                iconSize: [25, 25],
+                iconAnchor: [12, 12],
+                popupAnchor: [0, 0],
+                html: `<p class="icon">${vehicles[i].properties.routeShortName}</p> <div class="tooltip-vehicle"><small>VR</small> ${vehicles[i].properties.tripId.split("_")[2]}</div>`
+            }));
             // if so, update its position
             vehicle_markers[schedule].setLatLng([vehicles[i].geometry.coordinates[1], vehicles[i].geometry.coordinates[0]]);
             // update its data as well
@@ -112,9 +129,18 @@ async function generateVehicleMarkers() {
             processedVehicles.push(schedule);
         } else if (!processedVehicles.includes(schedule)) {
             // create a marker
+            let icon_class = 'icon-vehicle ';
+            if (vehicles[i].properties.routeType == 3) {
+                icon_class += 'bus';
+            } else if (vehicles[i].properties.routeType == 0) {
+                icon_class += 'tram';
+            }
+            if (!vehicles[i].properties.realTime) {
+                icon_class += ' static';
+            }
             vehicle_markers[schedule] = await L.marker([vehicles[i].geometry.coordinates[1], vehicles[i].geometry.coordinates[0]], {
                 icon: L.divIcon({
-                    className: 'icon-vehicle' + (vehicles[i].properties.routeType == 3 ? ' bus' : vehicles[i].properties.routeType == 0 ? ' tram' : vehicles[i].properties.routeType == 1 ? ' subway' : vehicles[i].properties.routeType == 2 ? ' rail' : ''),
+                    className: icon_class,
                     iconSize: [25, 25],
                     iconAnchor: [12, 12],
                     popupAnchor: [0, 0],
@@ -161,7 +187,7 @@ async function generateArrivals(data, update, time) {
     console.log(data)
     let is_open = document.getElementById(`bottom-data`).hidden;
     // stop any previous fetches
-    let arrivals = await fetch(`/stops/${data.stop_id}/trips?current=true&time=${time}`);
+    let arrivals = await fetch(`/stops/${data.stop_id}/trips?current=true`);
     arrivals = await arrivals.json();
     // get arrivals
     let is_open2 = document.getElementById(`bottom-data`).hidden;
@@ -197,17 +223,6 @@ async function generateArrivals(data, update, time) {
     }
     routeInfo.appendChild(select);
     // add button to extend time
-    let button = document.createElement('button');
-    button.className = 'btn btn-primary';
-    button.innerHTML = `Prikaži polaske za +1h (trenutno ${time / 3600}h)`;
-    button.onclick = async (e) => {
-        // add 1h to time
-        GLOBAL_TIME += 3600;
-        // refresh
-        evalHistory.push(`generateArrivals(${data}, false)`);
-        generateArrivals(data, false, GLOBAL_TIME);
-    }
-    routeInfo.appendChild(button);  
     // options listed should be all stations with same parent_Station
     let options = [];
     for (let i in stopData) {
