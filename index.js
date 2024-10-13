@@ -731,6 +731,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
         let currentTime = luxon.DateTime.now({
             zone: 'Europe/Zagreb'
         }).toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        console.log('Current time', currentTime, luxon.DateTime.now({ zone: 'Europe/Zagreb' }).toFormat('HH:mm:ss'));
     
         let geoJson = {
             type: "FeatureCollection",
