@@ -704,6 +704,7 @@ let STOP_TIMES_MAP = [];
 
 async function preloadData() {
     let calendar = await getCalendarIds();
+    console.log('Valid calendar ids', calendar);
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
@@ -785,6 +786,7 @@ async function getCalendarIds() {
     let validCalendarIds = [];
     let today = luxon.DateTime.now().toFormat('yyyyMMdd');
     let dayOfWeek = luxon.DateTime.now().toFormat('E');
+    console.log('Today is ' + dayOfWeek, today);
     for (let cal of calendar) {
         if (cal[dayOfWeek] == 1 && cal.start_date <= today && cal.end_date >= today) {
             // check if there is an exception
