@@ -162,7 +162,9 @@ const loadGtfs = async () => {
         sqlite3.prepare(calendarStr).run(calendarValues);
         console.log('Inserted calendar');
 
-        delete calendar, calendarValues, calendarStr;
+        calendar = null;
+        calendarValues = null;
+        calendarStr = null;
 
         let calendarDatesStr = 'INSERT INTO CalendarDates (service_id, date, exception_type) VALUES ';
         let calendarDatesValues = [];
@@ -175,7 +177,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(calendarDatesStr).run(calendarDatesValues);
         console.log('Inserted calendar_dates');
 
-        delete calendar_dates, calendarDatesValues, calendarDatesStr;
+        calendar_dates = null;
+        calendarDatesValues = null;
+        calendarDatesStr = null;
 
         let routesStr = 'INSERT INTO Routes (route_id, route_short_name, route_long_name, route_type, route_color, route_text_color) VALUES ';
         let routesValues = [];
@@ -188,7 +192,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(routesStr).run(routesValues);
         console.log('Inserted routes');
 
-        delete routes, routesValues, routesStr;
+        routes = null;
+        routesValues = null;
+        routesStr = null;
 
         let shapesStr = 'INSERT INTO Shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled) VALUES ';
         let counter = 0;
@@ -212,7 +218,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(localShapeStr).run(localShapesValues);
         console.log('Inserted shapes');
 
-        delete shapes, localShapesValues, localShapeStr;
+        shapes = null;
+        localShapesValues = null;
+        localShapeStr = null;
 
         let tripsStr = 'INSERT INTO Trips (route_id, service_id, trip_id, trip_headsign, direction_id, block_id, shape_id) VALUES ';
         let tripsValues = [];
@@ -238,7 +246,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(localTripsStr).run(localTripsValues);
         console.log('Inserted trips');
 
-        delete trips, localTripsValues, localTripsStr;
+        trips = null;
+        localTripsValues = null;
+        localTripsStr = null;
 
         let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
         let stopTimesValues = [];
@@ -266,7 +276,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(localStopTimesStr).run(localStopTimesValues);
         console.log('Inserted stop_times');
 
-        delete stop_times, localStopTimesValues, localStopTimesStr;
+        stop_times = null;
+        localStopTimesValues = null;
+        localStopTimesStr = null;
 
         let stopsStr = 'INSERT INTO Stops (stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, zone_id, stop_url, location_type, parent_station) VALUES ';
         let stopsValues = [];
@@ -292,7 +304,9 @@ const loadGtfs = async () => {
         await sqlite3.prepare(localStopsStr).run(localStopsValues);
         console.log('Inserted stops');
 
-        delete stops, localStopsValues, localStopsStr;
+        stops = null;
+        localStopsValues = null;
+        localStopsStr = null;
 
     } catch (e) {
         console.error(e);
