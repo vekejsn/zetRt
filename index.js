@@ -112,32 +112,6 @@ const createTables = () => {
 const loadGtfs = async () => {
     createTables();
     console.log('Loading GTFS data...');
-    let calendar = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded calendar');
-    let calendar_dates = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar_dates.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded calendar_dates');
-    let routes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'routes.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded routes');
-    let shapes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'shapes.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded shapes');
-    let stop_times = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stop_times.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded stop_times');
-    let stops = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stops.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded stops');
-    let trips = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'trips.txt').then(response => response.text()), { header: true }).data;
-    console.log('Loaded trips');
-
-    // remove empty rows
-    calendar = calendar.filter(row => Object.values(row).some(cell => cell !== ''));
-    calendar_dates = calendar_dates.filter(row => Object.values(row).some(cell => cell !== ''));
-    routes = routes.filter(row => Object.values(row).some(cell => cell !== ''));
-    shapes = shapes.filter(row => Object.values(row).some(cell => cell !== ''));
-    stop_times = stop_times.filter(row => Object.values(row).some(cell => cell !== ''));
-    stops = stops.filter(row => Object.values(row).some(cell => cell !== ''));
-    trips = trips.filter(row => Object.values(row).some(cell => cell !== ''));
-
-    console.log('Filtered data');
-
     // Clear tables
     sqlite3.exec('DELETE FROM Calendar;');
     sqlite3.exec('DELETE FROM CalendarDates;');
@@ -151,6 +125,9 @@ const loadGtfs = async () => {
 
     try {
         // Insert data
+        let calendar = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded calendar');
+        calendar = calendar.filter(row => Object.values(row).some(cell => cell !== ''));
         let calendarStr = 'INSERT INTO Calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ';
         let calendarValues = [];
 
@@ -166,6 +143,9 @@ const loadGtfs = async () => {
         calendarValues = null;
         calendarStr = null;
 
+        let calendar_dates = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar_dates.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded calendar_dates');
+        calendar_dates = calendar_dates.filter(row => Object.values(row).some(cell => cell !== ''));
         let calendarDatesStr = 'INSERT INTO CalendarDates (service_id, date, exception_type) VALUES ';
         let calendarDatesValues = [];
 
@@ -181,6 +161,9 @@ const loadGtfs = async () => {
         calendarDatesValues = null;
         calendarDatesStr = null;
 
+        let routes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'routes.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded routes');
+        routes = routes.filter(row => Object.values(row).some(cell => cell !== ''));
         let routesStr = 'INSERT INTO Routes (route_id, route_short_name, route_long_name, route_type, route_color, route_text_color) VALUES ';
         let routesValues = [];
 
@@ -196,6 +179,9 @@ const loadGtfs = async () => {
         routesValues = null;
         routesStr = null;
 
+        let shapes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'shapes.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded shapes');
+        shapes = shapes.filter(row => Object.values(row).some(cell => cell !== ''));
         let shapesStr = 'INSERT INTO Shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled) VALUES ';
         let counter = 0;
 
@@ -222,6 +208,9 @@ const loadGtfs = async () => {
         localShapesValues = null;
         localShapeStr = null;
 
+        let trips = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'trips.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded trips');
+        trips = trips.filter(row => Object.values(row).some(cell => cell !== ''));
         let tripsStr = 'INSERT INTO Trips (route_id, service_id, trip_id, trip_headsign, direction_id, block_id, shape_id) VALUES ';
         let tripsValues = [];
 
@@ -250,6 +239,9 @@ const loadGtfs = async () => {
         localTripsValues = null;
         localTripsStr = null;
 
+        let stop_times = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stop_times.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded stop_times');
+        stop_times = stop_times.filter(row => Object.values(row).some(cell => cell !== ''));
         let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
         let stopTimesValues = [];
 
@@ -280,6 +272,9 @@ const loadGtfs = async () => {
         localStopTimesValues = null;
         localStopTimesStr = null;
 
+        let stops = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stops.txt').then(response => response.text()), { header: true }).data;
+        console.log('Loaded stops');
+        stops = stops.filter(row => Object.values(row).some(cell => cell !== ''));
         let stopsStr = 'INSERT INTO Stops (stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, zone_id, stop_url, location_type, parent_station) VALUES ';
         let stopsValues = [];
 
