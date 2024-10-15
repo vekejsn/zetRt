@@ -249,9 +249,10 @@ const loadGtfs = async () => {
         let localStopTimesValues = [];
 
         counter = 0;
-
+        const batches = Math.ceil(stop_times.length / 2500);
         for (let row of stop_times) {
             if (counter == 2500) {
+                console.log(`Inserting batch ${stop_times.indexOf(row) / 2500 + 1}/${batches}`);
                 localStopTimesStr = localStopTimesStr.slice(0, -1);
                 await sqlite3.prepare(localStopTimesStr).run(localStopTimesValues);
                 localStopTimesStr = stopTimesStr;
