@@ -239,39 +239,46 @@ const loadGtfs = async () => {
         localTripsValues = null;
         localTripsStr = null;
 
-        let stop_times = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stop_times.txt').then(response => response.text()), { header: true }).data;
-        console.log('Loaded stop_times');
-        stop_times = stop_times.filter(row => Object.values(row).some(cell => cell !== ''));
+        console.log('Loading stop_times in buffered mode...');
+    
         let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
         let stopTimesValues = [];
-
-        let localStopTimesStr = stopTimesStr;
-        let localStopTimesValues = [];
-
         counter = 0;
-        const batches = Math.ceil(stop_times.length / 2500);
-        for (let row of stop_times) {
-            if (counter == 2500) {
-                console.log(`Inserting batch ${stop_times.indexOf(row) / 2500 + 1}/${batches}`);
-                localStopTimesStr = localStopTimesStr.slice(0, -1);
-                await sqlite3.prepare(localStopTimesStr).run(localStopTimesValues);
-                localStopTimesStr = stopTimesStr;
-                localStopTimesValues = [];
-                counter = 0;
+    
+        const stopTimesParser = await Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stop_times.txt').then(response => response.body), {
+            header: true,
+            chunk: async (results, parser) => {
+                const rows = results.data;
+    
+                for (let row of rows) {
+                    if (Object.values(row).some(cell => cell !== '')) {
+                        stopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
+                        row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                        row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                        stopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
+    
+                        counter++;
+                        if (counter >= 2500) {
+                            stopTimesStr = stopTimesStr.slice(0, -1);
+                            await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                            console.log('Inserted batch of stop_times');
+                            // Reset string and values for next batch
+                            stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
+                            stopTimesValues = [];
+                            counter = 0;
+                        }
+                    }
+                }
+            },
+            complete: async () => {
+                if (stopTimesValues.length > 0) {
+                    stopTimesStr = stopTimesStr.slice(0, -1);
+                    await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                    console.log('Inserted final batch of stop_times');
+                }
+                console.log('Completed processing stop_times.');
             }
-            localStopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
-            row.arrival_time_int = await row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
-            row.departure_time_int = await row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
-            localStopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
-            counter++;
-        }
-        localStopTimesStr = localStopTimesStr.slice(0, -1);
-        await sqlite3.prepare(localStopTimesStr).run(localStopTimesValues);
-        console.log('Inserted stop_times');
-
-        stop_times = null;
-        localStopTimesValues = null;
-        localStopTimesStr = null;
+        });
 
         let stops = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stops.txt').then(response => response.text()), { header: true }).data;
         console.log('Loaded stops');
