@@ -707,15 +707,15 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
-    SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
-    SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
+    let tmpSHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
+    SHAPES_MAP = tmpSHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
         acc[shape.shape_id].push(shape);
         return acc;
     }
     , {});
-    STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
-    STOP_TIMES_MAP = STOP_TIMES_MAP.reduce((acc, stopTime) => {
+    let tmpSTOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
+    STOP_TIMES_MAP = tmpSTOP_TIMES_MAP.reduce((acc, stopTime) => {
         if (!acc[stopTime.trip_id]) acc[stopTime.trip_id] = [];
         acc[stopTime.trip_id].push(stopTime);
         return acc;
@@ -821,6 +821,17 @@ async function insertIntoLog(message) {
     }
 }
 
+async function w_preloadData() {
+    while (true) {
+        try {
+            await preloadData();
+        } catch (e) {
+            console.log(e);
+        }
+            await sleep(60000);
+    }
+}
+
 let RT_DATA = [];
 
 async function getRtData() {
@@ -851,6 +862,6 @@ app.listen(port, async () => {
     await createTables();
     await loadGtfs();
     getRtData();
-    preloadData();
+    w_preloadData();
     console.log(`Server running on port ${port}`);
 });
