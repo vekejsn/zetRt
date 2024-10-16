@@ -16,6 +16,9 @@ const app = express();
 
 let cache = apicache.middleware;
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+
 /*
 CREATE TABLE IF NOT EXISTS Calendar(
     service_id TEXT,
