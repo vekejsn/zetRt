@@ -189,7 +189,7 @@ const loadGtfs = async () => {
         let localShapesValues = [];
 
         for (let row of shapes) {
-            if (counter == 2500) {
+            if (counter == 10000) {
                 localShapeStr = localShapeStr.slice(0, -1);
                 await sqlite3.prepare(localShapeStr).run(localShapesValues);
                 localShapeStr = shapesStr;
