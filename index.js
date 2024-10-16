@@ -824,7 +824,9 @@ async function insertIntoLog(message) {
 async function w_preloadData() {
     while (true) {
         try {
+            console.log('Preloading data...');
             await preloadData();
+            console.log('Preloaded!');
         } catch (e) {
             console.log(e);
         }
