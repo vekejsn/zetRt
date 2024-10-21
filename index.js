@@ -888,6 +888,17 @@ async function getRtData() {
     }
 }
 
+async function w_preloadData() {
+    while (true) {
+        try {
+            await preloadData();
+            await setTimeout(() => {}, 60000);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+}
+
 // mount static files in folder static
 app.use(express.static('static'));
 
