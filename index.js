@@ -906,6 +906,6 @@ app.listen(port, async () => {
     await createTables();
     await loadGtfs();
     getRtData();
-    preloadData();
+    w_preloadData();
     console.log(`Server running on port ${port}`);
 });
