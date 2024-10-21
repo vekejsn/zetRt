@@ -760,6 +760,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
         };
     
         for (let trip of TRIPS) {
+            if (!STOP_TIMES_MAP[trip.trip_id]) continue;
             let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
             let startTime = tripStopTimes[0].departure_time_int;
             let endTime = tripStopTimes[tripStopTimes.length - 1].arrival_time_int;
