@@ -11,6 +11,7 @@ let routes = [];
 var searchbox;
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+let vehicleData = []
 
 main();
 
@@ -33,6 +34,7 @@ async function initMap() {
         position: 'topright'
     }).addTo(map);
     L.control.locate({ position: `topright` }).addTo(map);
+    vehicleData = await fetch('/json/vehicles.json').then(res => res.json());
 }
 
 async function main() {
@@ -512,6 +514,11 @@ async function generateRouteSchedule(route_id, bool) {
     bottomData.innerHTML = routeInfo.outerHTML;
 }
 
+async function getVehicleData(vehicle_id) {
+    let vehicle = vehicleData.find(vehicle => vehicle.internalNo == vehicle_id);
+    return vehicle ? `${vehicle_id} - ${vehicle.model} ${vehicle.registrationNumber.length > 0 ? `(${vehicle.registrationNumber})` : ''}` : vehicle_id;
+}
+
 async function generateTripDetails(trip_id, location_bool) {
     // check if there is a marker with same trip_id
     if (location_bool) {
@@ -561,9 +568,9 @@ async function generateTripDetails(trip_id, location_bool) {
         // if the trip has live info, note it down  
         routeInfo.innerHTML += `<i class="bi bi-broadcast blink" style="pointer-events: none;"></i><small> Podaci se ažuriraju u stvarnom vremenu.</small>`;
         if (data.vehicleId == 'XXX')
-            routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> Lokacija vozila je aproksimirana.</span>`;
+            routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Lokacija vozila je aproksimirana.</span>`;
         else
-            routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> Vozilo: ${data.vehicleId}</span>`;
+            routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Vozilo: ${await getVehicleData(data.vehicleId)}</span>`;
     } else {
         // if the trip has no live info, note it down
         routeInfo.innerHTML += `<i class="bi bi-clock" style="pointer-events: none;"></i><small> Podaci za polazak su statičnog tipa.</small>`;
