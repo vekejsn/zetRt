@@ -98,6 +98,10 @@
                 const vehicleIdCell = document.createElement('td');
                 vehicleIdCell.textContent = properties.vehicleId;
                 row.appendChild(vehicleIdCell);
+
+                if (properties.vehicleId) {
+                    row.style.backgroundColor = 'lightgreen';
+                }
     
                 vehicleTable.appendChild(row);
             });
