@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Locations</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Raspored po linijama</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Linija</th>
+                <th>VR</th>
+                <th>Odredište</th>
+                <th>Interni br.</th>
+            </tr>
+        </thead>
+        <tbody id="vehicleTable"></tbody>
+    </table>
+
+    <script>
+        const main = async () => {
+            const data = await fetch('/vehicles/locations').then(x => x.json())
+
+            // Helper function to parse tripId
+            function parseTripId(tripId) {
+                return parseInt(tripId.split('_')[2], 10);
+            }
+
+            
+    
+            // Sort the features by routeShortName and tripId
+            const dict_by_lines = {}
+            data.features.forEach(feature => {
+                const properties = feature.properties;
+                const routeShortName = parseInt(properties.routeShortName);
+                if (!dict_by_lines[routeShortName]) {
+                    dict_by_lines[routeShortName] = []
+                }
+                dict_by_lines[routeShortName].push(feature)
+            });
+    
+            // Populate the table with sorted data
+            const vehicleTable = document.getElementById('vehicleTable');
+            const sortedFeatures = Object.values(dict_by_lines).flat().sort((a, b) => {
+                const aRouteShortName = parseInt(a.properties.routeShortName);
+                const bRouteShortName = parseInt(b.properties.routeShortName);
+                if (aRouteShortName !== bRouteShortName) {
+                    return aRouteShortName - bRouteShortName;
+                }
+    
+                const aTripId = parseTripId(a.properties.tripId);
+                const bTripId = parseTripId(b.properties.tripId);
+                return aTripId - bTripId;
+            });
+            sortedFeatures.forEach(feature => {
+                const properties = feature.properties;
+                const row = document.createElement('tr');
+    
+    
+                const routeLongNameCell = document.createElement('td');
+                routeLongNameCell.innerHTML = `<b>${properties.routeShortName}</b> ${properties.routeLongName}`;
+                row.appendChild(routeLongNameCell);
+    
+                const tripNumberCell = document.createElement('td');
+                tripNumberCell.textContent = parseTripId(properties.tripId).toString();
+                row.appendChild(tripNumberCell);
+    
+                const tripHeadsignCell = document.createElement('td');
+                tripHeadsignCell.textContent = properties.tripHeadsign;
+                row.appendChild(tripHeadsignCell);
+    
+                const vehicleIdCell = document.createElement('td');
+                vehicleIdCell.textContent = properties.vehicleId;
+                row.appendChild(vehicleIdCell);
+    
+                vehicleTable.appendChild(row);
+            });
+        }
+        main();
+    </script>
+</body>
+</html>

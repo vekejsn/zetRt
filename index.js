@@ -11,6 +11,7 @@ const sqlite3 = require('better-sqlite3')('zet.sqlite3');
 const express = require('express');
 const apicache = require('apicache');
 const luxon = require('luxon');
+const AdmZip = require('adm-zip');
 
 const app = express();
 
@@ -100,7 +101,7 @@ app.use((req, res, next) => {
 });
 
 const CONFIG = {
-    GTFS_UNZIPPED_BASE: 'http://gtfs.mirinda.ts.pirnet.si/gtfs-out/',
+    GTFS_ZIPPED: 'https://www.zet.hr/gtfs-scheduled/latest',
     GTFS_RT_TRIP_UPDATES: 'https://zet.hr/gtfs',
 }
 
@@ -112,6 +113,14 @@ const createTables = () => {
 const loadGtfs = async () => {
     createTables();
     console.log('Loading GTFS data...');
+    // Download GTFS
+    const gtfsZip = await fetch(CONFIG.GTFS_ZIPPED).then(response => response.buffer());
+    fs.writeFileSync('gtfs.zip', gtfsZip);
+    console.log('Downloaded GTFS data');
+    // Unzip GTFS
+    const zip = new AdmZip('gtfs.zip');
+    zip.extractAllTo('./gtfs', true);
+    console.log('Unzipped GTFS data');
     // Clear tables
     sqlite3.exec('DELETE FROM Calendar;');
     sqlite3.exec('DELETE FROM CalendarDates;');
@@ -122,10 +131,11 @@ const loadGtfs = async () => {
     sqlite3.exec('DELETE FROM Stops;');
 
     console.log('Cleared tables');
+    
 
     try {
         // Insert data
-        let calendar = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar.txt').then(response => response.text()), { header: true }).data;
+        let calendar = Papa.parse(await fs.promises.readFile('./gtfs/calendar.txt', 'utf8'), { header: true }).data;
         console.log('Loaded calendar');
         calendar = calendar.filter(row => Object.values(row).some(cell => cell !== ''));
         let calendarStr = 'INSERT INTO Calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ';
@@ -143,7 +153,7 @@ const loadGtfs = async () => {
         calendarValues = null;
         calendarStr = null;
 
-        let calendar_dates = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'calendar_dates.txt').then(response => response.text()), { header: true }).data;
+        let calendar_dates = Papa.parse(await fs.promises.readFile('./gtfs/calendar_dates.txt', 'utf8'), { header: true }).data;
         console.log('Loaded calendar_dates');
         calendar_dates = calendar_dates.filter(row => Object.values(row).some(cell => cell !== ''));
         let calendarDatesStr = 'INSERT INTO CalendarDates (service_id, date, exception_type) VALUES ';
@@ -161,7 +171,7 @@ const loadGtfs = async () => {
         calendarDatesValues = null;
         calendarDatesStr = null;
 
-        let routes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'routes.txt').then(response => response.text()), { header: true }).data;
+        let routes = Papa.parse(await fs.promises.readFile('./gtfs/routes.txt', 'utf8'), { header: true }).data;
         console.log('Loaded routes');
         routes = routes.filter(row => Object.values(row).some(cell => cell !== ''));
         let routesStr = 'INSERT INTO Routes (route_id, route_short_name, route_long_name, route_type, route_color, route_text_color) VALUES ';
@@ -179,7 +189,7 @@ const loadGtfs = async () => {
         routesValues = null;
         routesStr = null;
 
-        let shapes = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'shapes.txt').then(response => response.text()), { header: true }).data;
+        let shapes = Papa.parse(await fs.promises.readFile('./gtfs/shapes.txt', 'utf8'), { header: true }).data;
         console.log('Loaded shapes');
         shapes = shapes.filter(row => Object.values(row).some(cell => cell !== ''));
         let shapesStr = 'INSERT INTO Shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled) VALUES ';
@@ -208,7 +218,7 @@ const loadGtfs = async () => {
         localShapesValues = null;
         localShapeStr = null;
 
-        let trips = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'trips.txt').then(response => response.text()), { header: true }).data;
+        let trips = Papa.parse(await fs.promises.readFile('./gtfs/trips.txt', 'utf8'), { header: true }).data;
         console.log('Loaded trips');
         trips = trips.filter(row => Object.values(row).some(cell => cell !== ''));
         let tripsStr = 'INSERT INTO Trips (route_id, service_id, trip_id, trip_headsign, direction_id, block_id, shape_id) VALUES ';
@@ -245,42 +255,49 @@ const loadGtfs = async () => {
         let stopTimesValues = [];
         counter = 0;
     
-        const stopTimesParser = await Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stop_times.txt').then(response => response.body), {
+        const stopTimesParser = await Papa.parse(await fs.promises.readFile('./gtfs/stop_times.txt', 'utf8'), {
             header: true,
             chunk: async (results, parser) => {
                 const rows = results.data;
-    
-                for (let row of rows) {
-                    if (Object.values(row).some(cell => cell !== '')) {
-                        stopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
-                        row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
-                        row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
-                        stopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
-    
-                        counter++;
-                        if (counter >= 2500) {
-                            stopTimesStr = stopTimesStr.slice(0, -1);
-                            await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
-                            console.log('Inserted batch of stop_times');
-                            // Reset string and values for next batch
-                            stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
-                            stopTimesValues = [];
-                            counter = 0;
+                
+                try {
+                    for (let row of rows) {
+                        if (Object.values(row).some(cell => cell !== '')) {
+                            stopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
+                            row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                            row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                            stopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
+        
+                            counter++;
+                            if (counter >= 2000) {
+                                stopTimesStr = stopTimesStr.slice(0, -1);
+                                await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                                console.log('Inserted batch of stop_times');
+                                // Reset string and values for next batch
+                                stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
+                                stopTimesValues = [];
+                                counter = 0;
+                            }
                         }
                     }
+                } catch (e) {
+                    console.error(e);
                 }
             },
             complete: async () => {
                 if (stopTimesValues.length > 0) {
-                    stopTimesStr = stopTimesStr.slice(0, -1);
-                    await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                    try {
+                        await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                    } catch (e) {
+                        console.log(e);
+                    }
                     console.log('Inserted final batch of stop_times');
                 }
                 console.log('Completed processing stop_times.');
             }
         });
 
-        let stops = Papa.parse(await fetch(CONFIG.GTFS_UNZIPPED_BASE + 'stops.txt').then(response => response.text()), { header: true }).data;
+        let stops = Papa.parse(await fs.promises.readFile('./gtfs/stops.txt', 'utf8'), { header: true }).data;
         console.log('Loaded stops');
         stops = stops.filter(row => Object.values(row).some(cell => cell !== ''));
         let stopsStr = 'INSERT INTO Stops (stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, zone_id, stop_url, location_type, parent_station) VALUES ';
@@ -387,7 +404,8 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                         arrivalDelay: stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0,
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
                         blockId: stopTime.block_id,
-                        realTime: true
+                        realTime: true,
+                        vehicleId: VP_MAP[stopTime.trip_id] || 'XXX'
                     });
                 }
             } else {
@@ -413,7 +431,8 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                     arrivalDelay: 0,
                     departureDelay: 0,
                     blockId: stopTime.block_id,
-                    realTime: false
+                    realTime: false,
+                    vehicleId: VP_MAP[stopTime.trip_id] || 'XXX'
                 });
             }
         }
@@ -474,7 +493,8 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             directionId: trip.direction_id,
             stopTimes: formattedStopTimes,
             blockId: trip.block_id,
-            realTime: RT_DATA.find(rt => rt.trip.tripId == tripId) ? true : false
+            realTime: RT_DATA.find(rt => rt.trip.tripId == tripId) ? true : false,
+            vehicleId: VP_MAP[tripId] || 'XXX'
         });
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
@@ -744,6 +764,13 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     
             if (currentTime > startTime && currentTime < endTime) {
                 let [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
+                /*if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
+                    [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
+                } else {
+                    lat = VP_MAP2[trip.trip_id].position.latitude;
+                    lon = VP_MAP2[trip.trip_id].position.longitude;
+                    bearing = 0;
+                }*/
     
                 geoJson.features.push({
                     type: "Feature",
@@ -761,7 +788,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                         delay: RT_UPDATE.delay,
                         bearing: bearing,
                         realTime: RT_UPDATE.realTime,
-                        vehicleId: "XXX"
+                        vehicleId: VP_MAP[trip.trip_id] || 'XXX'
                     }
                 });
             }
@@ -821,6 +848,9 @@ async function insertIntoLog(message) {
 }
 
 let RT_DATA = [];
+let VP_DATA = [];
+let VP_MAP = {};
+let VP_MAP2 = {};
 
 async function getRtData() {
     while (true) {
@@ -828,13 +858,26 @@ async function getRtData() {
             let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES);
             let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
             let data = [];
+            let vehicleData = [];
             for (let entity of feed.entity) {
                 if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
                     data.push(entity.tripUpdate);
                 }
+                if (entity.vehicle) {
+                    vehicleData.push(entity.vehicle);
+                }
             }
             RT_DATA = data;
-            console.log('Updated RT data - ' + RT_DATA.length + ' updates');
+            let vehicle_map = {}
+            let vehicle_map2 = {}
+            for (let vehicle of vehicleData) {
+                vehicle_map[vehicle.trip.tripId] = vehicle.vehicle.id;
+                vehicle_map2[vehicle.trip.tripId] = vehicle;
+            }
+            VP_DATA = vehicleData;
+            VP_MAP = vehicle_map;
+            VP_MAP2 = vehicle_map2;
+            console.log('Updated RT data - ' + RT_DATA.length + ' updates, ' + VP_DATA.length + ' vehicles');
         } catch (e) {
             insertIntoLog(e.message + ' ' + e.stack);
             console.error(e);

@@ -279,7 +279,7 @@ async function generateArrivals(data, update, time) {
         } else {
             div_arrival.innerHTML += ` <i class="bi bi-clock" style="pointer-events: none;"></i>`;
         }
-        div_arrival.innerHTML += `<br><span style="font-size: 0.7rem; pointer-events: none;">VR ${arrival.tripId.split("_")[2]} / XXX</span>`;
+        div_arrival.innerHTML += `<br><span style="font-size: 0.7rem; pointer-events: none;">VR ${arrival.tripId.split("_")[2]} /  ${arrival.vehicleId}</span>`;
         div_arrival.id = await arrival.tripId;
         div_arrival.addEventListener('click', e => {
             // add the following to the history
@@ -560,7 +560,10 @@ async function generateTripDetails(trip_id, location_bool) {
     if (data.realTime) {
         // if the trip has live info, note it down  
         routeInfo.innerHTML += `<i class="bi bi-broadcast blink" style="pointer-events: none;"></i><small> Podaci se ažuriraju u stvarnom vremenu.</small>`;
-        routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> Lokacija vozila je aproksimirana.</span>`;
+        if (data.vehicleId == 'XXX')
+            routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> Lokacija vozila je aproksimirana.</span>`;
+        else
+            routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> Vozilo: ${data.vehicleId}</span>`;
     } else {
         // if the trip has no live info, note it down
         routeInfo.innerHTML += `<i class="bi bi-clock" style="pointer-events: none;"></i><small> Podaci za polazak su statičnog tipa.</small>`;
