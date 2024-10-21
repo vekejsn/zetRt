@@ -17,6 +17,8 @@ const app = express();
 
 let cache = apicache.middleware;
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 /*
 CREATE TABLE IF NOT EXISTS Calendar(
     service_id TEXT,
@@ -892,10 +894,10 @@ async function w_preloadData() {
     while (true) {
         try {
             await preloadData();
-            await setTimeout(() => {}, 60000);
         } catch (e) {
             console.error(e);
         }
+        await sleep(60000);
     }
 }
 
