@@ -287,6 +287,8 @@ const loadGtfs = async () => {
             complete: async () => {
                 if (stopTimesValues.length > 0) {
                     try {
+                         if (stopTimesStr[stopTimesStr.length - 1] == ',')
+                            stopTimesStr = stopTimesStr.slice(0, -1);
                         await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
                     } catch (e) {
                         console.log(e);
