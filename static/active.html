@@ -32,6 +32,7 @@
                 <th>Linija</th>
                 <th>VR</th>
                 <th>Odredište</th>
+                <th>Polazak</th>
                 <th>Interni br.</th>
             </tr>
         </thead>
@@ -79,7 +80,7 @@
     
     
                 const routeLongNameCell = document.createElement('td');
-                routeLongNameCell.innerHTML = `<b>${properties.routeShortName}</b> ${properties.routeLongName}`;
+                routeLongNameCell.innerHTML = `<b>${properties.routeShortName}</b>`;
                 row.appendChild(routeLongNameCell);
     
                 const tripNumberCell = document.createElement('td');
@@ -89,6 +90,10 @@
                 const tripHeadsignCell = document.createElement('td');
                 tripHeadsignCell.textContent = properties.tripHeadsign;
                 row.appendChild(tripHeadsignCell);
+
+                const departureTimeCell = document.createElement('td');
+                departureTimeCell.textContent = properties.departureTime;
+                row.appendChild(departureTimeCell);
     
                 const vehicleIdCell = document.createElement('td');
                 vehicleIdCell.textContent = properties.vehicleId;
