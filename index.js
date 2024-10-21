@@ -17,6 +17,9 @@ const app = express();
 
 let cache = apicache.middleware;
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+
 /*
 CREATE TABLE IF NOT EXISTS Calendar(
     service_id TEXT,
@@ -199,7 +202,7 @@ const loadGtfs = async () => {
         let localShapesValues = [];
 
         for (let row of shapes) {
-            if (counter == 2500) {
+            if (counter == 1000) {
                 localShapeStr = localShapeStr.slice(0, -1);
                 await sqlite3.prepare(localShapeStr).run(localShapesValues);
                 localShapeStr = shapesStr;
@@ -727,15 +730,15 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
-    SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
-    SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
+    let tmpSHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
+    SHAPES_MAP = tmpSHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
         acc[shape.shape_id].push(shape);
         return acc;
     }
     , {});
-    STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
-    STOP_TIMES_MAP = STOP_TIMES_MAP.reduce((acc, stopTime) => {
+    let tmpSTOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
+    STOP_TIMES_MAP = tmpSTOP_TIMES_MAP.reduce((acc, stopTime) => {
         if (!acc[stopTime.trip_id]) acc[stopTime.trip_id] = [];
         acc[stopTime.trip_id].push(stopTime);
         return acc;
@@ -757,6 +760,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     
         for (let trip of TRIPS) {
             let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
+            if (!tripStopTimes) continue;
             let startTime = tripStopTimes[0].departure_time_int;
             let endTime = tripStopTimes[tripStopTimes.length - 1].arrival_time_int;
             let RT_UPDATE = getRealTimeUpdate(trip.trip_id);
@@ -847,6 +851,19 @@ async function insertIntoLog(message) {
     }
 }
 
+async function w_preloadData() {
+    while (true) {
+        try {
+            console.log('Preloading data...');
+            await preloadData();
+            console.log('Preloaded!');
+        } catch (e) {
+            console.log(e);
+        }
+            await sleep(60000);
+    }
+}
+
 let RT_DATA = [];
 let VP_DATA = [];
 let VP_MAP = {};
@@ -893,6 +910,6 @@ app.listen(port, async () => {
     await createTables();
     await loadGtfs();
     getRtData();
-    preloadData();
+    w_preloadData();
     console.log(`Server running on port ${port}`);
 });
