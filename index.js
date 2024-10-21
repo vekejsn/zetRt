@@ -133,7 +133,7 @@ const loadGtfs = async () => {
     sqlite3.exec('DELETE FROM Stops;');
 
     console.log('Cleared tables');
-    
+
 
     try {
         // Insert data
@@ -196,6 +196,8 @@ const loadGtfs = async () => {
         shapes = shapes.filter(row => Object.values(row).some(cell => cell !== ''));
         let shapesStr = 'INSERT INTO Shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled) VALUES ';
         let counter = 0;
+        let shapeDistMap = {};
+        let shapeMap = {};
 
         let localShapeStr = shapesStr;
         let localShapesValues = [];
@@ -208,8 +210,18 @@ const loadGtfs = async () => {
                 localShapesValues = [];
                 counter = 0;
             }
+            if (!Object.keys(shapeDistMap).includes(row.shape_id)) {
+                shapeDistMap[row.shape_id] = 0;
+                shapeMap[row.shape_id] = [];
+            } else {
+                shapeDistMap[row.shape_id] += Math.sqrt(Math.pow(row.shape_pt_lat - shapes[shapes.indexOf(row) - 1].shape_pt_lat, 2) + Math.pow(row.shape_pt_lon - shapes[shapes.indexOf(row) - 1].shape_pt_lon, 2));
+            }
             localShapeStr += '(?, ?, ?, ?, ?),';
-            localShapesValues.push(row.shape_id, row.shape_pt_lat, row.shape_pt_lon, row.shape_pt_sequence, row.shape_dist_traveled);
+            localShapesValues.push(row.shape_id, row.shape_pt_lat, row.shape_pt_lon, row.shape_pt_sequence, shapeDistMap[row.shape_id] * 1000);
+            shapeMap[row.shape_id].push({
+                ...row,
+                shape_dist_traveled: shapeDistMap[row.shape_id] * 1000
+            });
             counter++;
         }
         localShapeStr = localShapeStr.slice(0, -1);
@@ -219,12 +231,14 @@ const loadGtfs = async () => {
         shapes = null;
         localShapesValues = null;
         localShapeStr = null;
+        shapeDistMap = null;
 
         let trips = Papa.parse(await fs.promises.readFile('./gtfs/trips.txt', 'utf8'), { header: true }).data;
         console.log('Loaded trips');
         trips = trips.filter(row => Object.values(row).some(cell => cell !== ''));
         let tripsStr = 'INSERT INTO Trips (route_id, service_id, trip_id, trip_headsign, direction_id, block_id, shape_id) VALUES ';
         let tripsValues = [];
+        let tripToShapeMap = {};
 
         let localTripsStr = tripsStr;
         let localTripsValues = [];
@@ -241,35 +255,80 @@ const loadGtfs = async () => {
             }
             localTripsStr += '(?, ?, ?, ?, ?, ?, ?),';
             localTripsValues.push(row.route_id, row.service_id, row.trip_id, row.trip_headsign, row.direction_id, row.block_id, row.shape_id);
+            tripToShapeMap[row.trip_id] = row.shape_id;
             counter++;
         }
         localTripsStr = localTripsStr.slice(0, -1);
         await sqlite3.prepare(localTripsStr).run(localTripsValues);
         console.log('Inserted trips');
 
-        trips = null;
+     trips = null;
         localTripsValues = null;
         localTripsStr = null;
 
+        let stops = Papa.parse(await fs.promises.readFile('./gtfs/stops.txt', 'utf8'), { header: true }).data;
+        console.log('Loaded stops');
+        stops = stops.filter(row => Object.values(row).some(cell => cell !== ''));
+        let stopsStr = 'INSERT INTO Stops (stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, zone_id, stop_url, location_type, parent_station) VALUES ';
+        let stopsValues = [];
+
+        let localStopsStr = stopsStr;
+        let localStopsValues = [];
+
+        counter = 0;
+
+        let stopMap = {};
+
+        for (let row of stops) {
+            if (counter == 800) {
+                localStopsStr = localStopsStr.slice(0, -1);
+                await sqlite3.prepare(localStopsStr).run(localStopsValues);
+                localStopsStr = stopsStr;
+                localStopsValues = [];
+                counter = 0;
+            }
+            localStopsStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
+            localStopsValues.push(row.stop_id, row.stop_code, row.stop_name, row.stop_desc, row.stop_lat, row.stop_lon, row.zone_id, row.stop_url, row.location_type, row.parent_station);
+            stopMap[row.stop_id] = row;
+            counter++;
+        }
+        localStopsStr = localStopsStr.slice(0, -1);
+        await sqlite3.prepare(localStopsStr).run(localStopsValues);
+        console.log('Inserted stops');
+
+        stops = null;
+        localStopsValues = null;
+        localStopsStr = null;
+        
         console.log('Loading stop_times in buffered mode...');
-    
+
         let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
         let stopTimesValues = [];
         counter = 0;
-    
+        const tripIndex = {};
+
         const stopTimesParser = await Papa.parse(await fs.createReadStream('./gtfs/stop_times.txt'), {
             header: true,
             chunk: async (results, parser) => {
                 const rows = results.data;
-                
+
                 try {
                     for (let row of rows) {
                         if (Object.values(row).some(cell => cell !== '')) {
                             stopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
                             row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
                             row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                            // calculate shape_dist_traveled by getting nearest shape point
+                            row.shape_dist_traveled = shapeMap[tripToShapeMap[row.trip_id]].reduce((acc, shape) => {
+                                const distance = Math.sqrt(Math.pow(stopMap[row.stop_id].stop_lat - shape.shape_pt_lat, 2) + Math.pow(stopMap[row.stop_id].stop_lon - shape.shape_pt_lon, 2));
+                                if (distance < acc.distance) {
+                                    acc.distance = distance;
+                                    acc.shape_dist_traveled = shape.shape_dist_traveled;
+                                }
+                                return acc;
+                            }, { distance: Infinity, shape_dist_traveled: 0 }).shape_dist_traveled;
                             stopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
-        
+
                             counter++;
                             if (counter >= 2000) {
                                 stopTimesStr = stopTimesStr.slice(0, -1);
@@ -289,7 +348,7 @@ const loadGtfs = async () => {
             complete: async () => {
                 if (stopTimesValues.length > 0) {
                     try {
-                         if (stopTimesStr[stopTimesStr.length - 1] == ',')
+                        if (stopTimesStr[stopTimesStr.length - 1] == ',')
                             stopTimesStr = stopTimesStr.slice(0, -1);
                         await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
                     } catch (e) {
@@ -300,37 +359,6 @@ const loadGtfs = async () => {
                 console.log('Completed processing stop_times.');
             }
         });
-
-        let stops = Papa.parse(await fs.promises.readFile('./gtfs/stops.txt', 'utf8'), { header: true }).data;
-        console.log('Loaded stops');
-        stops = stops.filter(row => Object.values(row).some(cell => cell !== ''));
-        let stopsStr = 'INSERT INTO Stops (stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, zone_id, stop_url, location_type, parent_station) VALUES ';
-        let stopsValues = [];
-
-        let localStopsStr = stopsStr;
-        let localStopsValues = [];
-
-        counter = 0;
-
-        for (let row of stops) {
-            if (counter == 800) {
-                localStopsStr = localStopsStr.slice(0, -1);
-                await sqlite3.prepare(localStopsStr).run(localStopsValues);
-                localStopsStr = stopsStr;
-                localStopsValues = [];
-                counter = 0;
-            }
-            localStopsStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
-            localStopsValues.push(row.stop_id, row.stop_code, row.stop_name, row.stop_desc, row.stop_lat, row.stop_lon, row.zone_id, row.stop_url, row.location_type, row.parent_station);
-            counter++;
-        }
-        localStopsStr = localStopsStr.slice(0, -1);
-        await sqlite3.prepare(localStopsStr).run(localStopsValues);
-        console.log('Inserted stops');
-
-        stops = null;
-        localStopsValues = null;
-        localStopsStr = null;
 
     } catch (e) {
         console.error(e);
@@ -450,7 +478,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
 app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
     try {
         let tripId = req.params.id;
-        let trip = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE trip_id = ?').get(tripId);  
+        let trip = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE trip_id = ?').get(tripId);
         if (!trip) {
             res.status(404).json({ message: 'Trip not found' });
             return;
@@ -737,28 +765,28 @@ async function preloadData() {
         acc[shape.shape_id].push(shape);
         return acc;
     }
-    , {});
+        , {});
     STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
     STOP_TIMES_MAP = STOP_TIMES_MAP.reduce((acc, stopTime) => {
         if (!acc[stopTime.trip_id]) acc[stopTime.trip_id] = [];
         acc[stopTime.trip_id].push(stopTime);
         return acc;
     }
-    , {});
+        , {});
 }
 
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {
         let calendar = await getCalendarIds();
-    
+
         let currentTime = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
         console.log('Current time', currentTime, luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss'));
-    
+
         let geoJson = {
             type: "FeatureCollection",
             features: []
         };
-    
+
         for (let trip of TRIPS) {
             if (!STOP_TIMES_MAP[trip.trip_id]) continue;
             let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
@@ -766,7 +794,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
             let endTime = tripStopTimes[tripStopTimes.length - 1].arrival_time_int;
             let RT_UPDATE = getRealTimeUpdate(trip.trip_id);
             endTime += RT_UPDATE.delay;
-    
+
             if (currentTime > startTime && currentTime < endTime) {
                 let [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
                 /*if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
@@ -776,7 +804,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                     lon = VP_MAP2[trip.trip_id].position.longitude;
                     bearing = 0;
                 }*/
-    
+
                 geoJson.features.push({
                     type: "Feature",
                     geometry: {
@@ -789,6 +817,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                         routeShortName: trip.route_short_name,
                         routeLongName: trip.route_long_name,
                         routeType: trip.route_type,
+                        departureTime: tripStopTimes[0].departure_time,
                         tripHeadsign: trip.trip_headsign,
                         delay: RT_UPDATE.delay,
                         bearing: bearing,
@@ -798,7 +827,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                 });
             }
         }
-    
+
         res.json(geoJson);
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);

@@ -76,3 +76,11 @@ CREATE TABLE IF NOT EXISTS Logs (
     log_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     log_message TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id ON StopTimes(trip_id);
+CREATE INDEX IF NOT EXISTS idx_stops_stop_id ON Stops(stop_id);
+CREATE INDEX IF NOT EXISTS idx_trips_trip_id ON Trips(trip_id);
+CREATE INDEX IF NOT EXISTS idx_trips_shape_id ON Trips(shape_id);
+CREATE INDEX IF NOT EXISTS idx_shapes_shape_id ON Shapes(shape_id);
+CREATE INDEX IF NOT EXISTS idx_shapes_lat_lon ON Shapes(shape_pt_lat, shape_pt_lon);
+CREATE INDEX IF NOT EXISTS idx_routes_route_id ON Routes(route_id);
