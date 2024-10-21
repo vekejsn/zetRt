@@ -17,9 +17,6 @@ const app = express();
 
 let cache = apicache.middleware;
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-
 /*
 CREATE TABLE IF NOT EXISTS Calendar(
     service_id TEXT,
@@ -202,7 +199,7 @@ const loadGtfs = async () => {
         let localShapesValues = [];
 
         for (let row of shapes) {
-            if (counter == 1000) {
+            if (counter == 2500) {
                 localShapeStr = localShapeStr.slice(0, -1);
                 await sqlite3.prepare(localShapeStr).run(localShapesValues);
                 localShapeStr = shapesStr;
@@ -252,59 +249,49 @@ const loadGtfs = async () => {
         localTripsValues = null;
         localTripsStr = null;
 
-        console.log('Loading stop_times in streaming mode...');
-
-        let stopTimesQuery = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
+        console.log('Loading stop_times in buffered mode...');
+    
+        let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
         let stopTimesValues = [];
-        const BATCH_SIZE = 2000;
         counter = 0;
-        
-        // Insert batch function
-        const insertBatch = async () => {
-            if (stopTimesValues.length > 0) {
-                const placeholders = stopTimesValues.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
-                try {
-                    await sqlite3.prepare(stopTimesQuery + placeholders).run(stopTimesValues);
-                    console.log(`Inserted batch of ${stopTimesValues.length / 10} stop_times`);
-                } catch (e) {
-                    console.error('Error inserting batch:', e);
-                }
-                stopTimesValues = []; // Reset for next batch
-            }
-        };
-        
-        // Stream file data and process chunks
-        const fileStream = fs.createReadStream('./gtfs/stop_times.txt', { encoding: 'utf8' });
-        
-        Papa.parse(fileStream, {
+    
+        const stopTimesParser = await Papa.parse(await fs.createReadStream('./gtfs/stop_times.txt'), {
             header: true,
             chunk: async (results, parser) => {
                 const rows = results.data;
+                
+                try {
+                    for (let row of rows) {
+                        if (Object.values(row).some(cell => cell !== '')) {
+                            stopTimesStr += '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?),';
+                            row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                            row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time);
+                            stopTimesValues.push(row.trip_id, row.arrival_time, row.arrival_time_int, row.departure_time, row.departure_time_int, row.stop_id, row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled);
         
-                for (let row of rows) {
-                    if (Object.values(row).some(cell => cell !== '')) {
-                        row.arrival_time_int = row.arrival_time.split(':').reduce((acc, time) => (60 * acc) + +time, 0);
-                        row.departure_time_int = row.departure_time.split(':').reduce((acc, time) => (60 * acc) + +time, 0);
-        
-                        stopTimesValues.push(
-                            row.trip_id, row.arrival_time, row.arrival_time_int,
-                            row.departure_time, row.departure_time_int, row.stop_id,
-                            row.stop_sequence, row.pickup_type, row.drop_off_type, row.shape_dist_traveled
-                        );
-        
-                        counter++;
-        
-                        if (counter >= BATCH_SIZE) {
-                            await insertBatch();
-                            counter = 0;
+                            counter++;
+                            if (counter >= 2000) {
+                                stopTimesStr = stopTimesStr.slice(0, -1);
+                                await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                                console.log('Inserted batch of stop_times');
+                                // Reset string and values for next batch
+                                stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
+                                stopTimesValues = [];
+                                counter = 0;
+                            }
                         }
                     }
+                } catch (e) {
+                    console.error(e);
                 }
             },
             complete: async () => {
-                // Insert any remaining records
                 if (stopTimesValues.length > 0) {
-                    await insertBatch();
+                    try {
+                        await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
+                    } catch (e) {
+                        console.log(e);
+                    }
+                    console.log('Inserted final batch of stop_times');
                 }
                 console.log('Completed processing stop_times.');
             }
@@ -740,15 +727,15 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
-    let tmpSHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
-    SHAPES_MAP = tmpSHAPES_MAP.reduce((acc, shape) => {
+    SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
+    SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
         acc[shape.shape_id].push(shape);
         return acc;
     }
     , {});
-    let tmpSTOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
-    STOP_TIMES_MAP = tmpSTOP_TIMES_MAP.reduce((acc, stopTime) => {
+    STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
+    STOP_TIMES_MAP = STOP_TIMES_MAP.reduce((acc, stopTime) => {
         if (!acc[stopTime.trip_id]) acc[stopTime.trip_id] = [];
         acc[stopTime.trip_id].push(stopTime);
         return acc;
@@ -770,7 +757,6 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     
         for (let trip of TRIPS) {
             let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
-            if (!tripStopTimes) continue;
             let startTime = tripStopTimes[0].departure_time_int;
             let endTime = tripStopTimes[tripStopTimes.length - 1].arrival_time_int;
             let RT_UPDATE = getRealTimeUpdate(trip.trip_id);
@@ -861,19 +847,6 @@ async function insertIntoLog(message) {
     }
 }
 
-async function w_preloadData() {
-    while (true) {
-        try {
-            console.log('Preloading data...');
-            await preloadData();
-            console.log('Preloaded!');
-        } catch (e) {
-            console.log(e);
-        }
-            await sleep(60000);
-    }
-}
-
 let RT_DATA = [];
 let VP_DATA = [];
 let VP_MAP = {};
@@ -920,6 +893,6 @@ app.listen(port, async () => {
     await createTables();
     await loadGtfs();
     getRtData();
-    w_preloadData();
+    preloadData();
     console.log(`Server running on port ${port}`);
 });
