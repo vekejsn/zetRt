@@ -516,7 +516,7 @@ async function generateRouteSchedule(route_id, bool) {
 
 async function getVehicleData(vehicle_id) {
     let vehicle = vehicleData.find(vehicle => vehicle.internalNo == vehicle_id);
-    return vehicle ? `${vehicle_id} - ${vehicle.model} ${vehicle.registrationNumber.length > 0 ? `(${vehicle.registrationNumber})` : ''}` : vehicle_id;
+    return vehicle ? `${vehicle_id} - ${vehicle.model.trim()} ${vehicle.registrationNumber.length > 0 ? `(${vehicle.registrationNumber.trim()})` : ''}` : vehicle_id;
 }
 
 async function generateTripDetails(trip_id, location_bool) {
