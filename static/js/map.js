@@ -574,6 +574,8 @@ async function generateTripDetails(trip_id, location_bool) {
     } else {
         // if the trip has no live info, note it down
         routeInfo.innerHTML += `<i class="bi bi-clock" style="pointer-events: none;"></i><small> Podaci za polazak su statičnog tipa.</small>`;
+        if (data.vehicleId != 'XXX')
+            routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Vozilo: ${await getVehicleData(data.vehicleId)}</span>`;
     }
     routeInfo.innerHTML += routeScheduleDiv;
     routeInfo.innerHTML += `<hr>`;
