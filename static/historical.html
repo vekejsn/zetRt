@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historical Vehicle Data</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .route-group { margin-top: 20px; }
+        .block-group { margin-left: 20px; }
+        .vehicle-list-header { font-weight: bold; text-align: left; }
+        .vehicle-list { margin-left: 40px; width: 300px; }
+    </style>
+</head>
+<body>
+    <h1>Prikaz povijesnih podataka</h1>
+    Podaci nisu nužno točni, tako da se ne preporučuje korištenje ovih podataka za analize i/ili donošenje odluka ili zaključaka. Upotreba je isključivo u informativne svrhe.
+    <br><br>
+    <label for="date">Odaberi datum:</label>
+    <input type="date" id="date" />
+
+    <div id="data-container"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('date');
+            dateInput.valueAsDate = new Date();  // Set default to today
+            fetchData();
+
+            dateInput.addEventListener('change', fetchData);
+        });
+
+        async function fetchData() {
+            const date = document.getElementById('date').value;
+            const response = await fetch(`/historical/${date}`);
+            const data = await response.json();
+
+            // Group data by routeShortName and then blockId
+            const groupedData = data.reduce((acc, item) => {
+                const { routeShortName, blockId, startTime, vehicleId, tripHeadsign } = item;
+
+                if (!acc[routeShortName]) acc[routeShortName] = {};
+                if (!acc[routeShortName][blockId]) acc[routeShortName][blockId] = [];
+
+                acc[routeShortName][blockId].push({ startTime, vehicleId, tripHeadsign });
+                return acc;
+            }, {});
+
+            displayData(groupedData);
+        }
+
+        function displayData(groupedData) {
+            const container = document.getElementById('data-container');
+            container.innerHTML = '';  // Clear previous data
+
+            Object.keys(groupedData).forEach(route => {
+                const routeDiv = document.createElement('div');
+                routeDiv.className = 'route-group';
+                routeDiv.innerHTML = `<strong>Linija ${route}</strong>`;
+
+                Object.keys(groupedData[route]).forEach(block => {
+                    const blockDetails = document.createElement('details');
+                    blockDetails.className = 'block-group';
+
+                    let blockSummary = document.createElement('summary');
+                    blockSummary.innerHTML = `<b>VR</b> ${block}`;
+                    blockSummary.innerHTML += ` | <b>Vozilo</b> ${[...new Set(groupedData[route][block].map(vehicle => vehicle.vehicleId))].join(', ')}`;	
+                    blockDetails.appendChild(blockSummary);
+
+                    const vehicleList = document.createElement('table');
+                    const header = document.createElement('tr');
+                    header.className = 'vehicle-list-header';
+                    header.innerHTML = `
+                        <th style="width: 70px;">Vozilo</th>
+                        <th style="width: 70px;">Polazak</th>
+                        <th>Odredište</th>
+                    `;
+                    vehicleList.appendChild(header);
+                    vehicleList.className = 'vehicle-list';
+
+                    groupedData[route][block]
+                        .sort((a, b) => new Date('1970-01-01T' + a.startTime) - new Date('1970-01-01T' + b.startTime))
+                        .forEach(vehicle => {
+                            const vehicleItem = document.createElement('tr');
+                            // vehicleItem.textContent = `Polazak ${vehicle.startTime}, smjer ${vehicle.tripHeadsign}, vozilo ${vehicle.vehicleId}`;
+                            vehicleItem.innerHTML = `
+                                <td style="width: 70px;"><b>${vehicle.vehicleId}</b></td>
+                                <td style="width: 70px;">${vehicle.startTime}</td>
+                                <td>${vehicle.tripHeadsign}</td>
+                            `;
+                            vehicleList.appendChild(vehicleItem);
+                        });
+
+                    // add to blockSummary distinct vehicleIds
+
+                    blockDetails.appendChild(vehicleList);
+                    routeDiv.appendChild(blockDetails);
+                });
+
+                container.appendChild(routeDiv);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -110,6 +110,16 @@ const CONFIG = {
 const createTables = () => {
     const createTables = fs.readFileSync('create_tables.sql', 'utf8');
     sqlite3.exec(createTables);
+    // iterate over files in migrations folder and execute them
+    const migrations = fs.readdirSync('migrations');
+    for (let migration of migrations) {
+        try {
+            const sql = fs.readFileSync(`migrations/${migration}`, 'utf8');
+            sqlite3.exec(sql);
+        } catch (e) {
+            console.error(e);
+        }
+    }
 }
 
 const loadGtfs = async () => {
@@ -677,6 +687,36 @@ app.get('/routes/:id/shapes', cache('1 day'), async (req, res) => {
     }
 });
 
+app.get('/historical/:date', cache('30 seconds'), async (req, res) => {
+    try {
+        let date = req.params.date;
+        let parsedDate = luxon.DateTime.fromFormat(date, 'yyyy-MM-dd');
+        if (!parsedDate.isValid) {
+            res.status(400).json({ message: 'Invalid date format' });
+            return;
+        }
+        // change it to format yyyyMMdd
+        parsedDate = parsedDate.toFormat('yyyyMMdd');
+        let entries = await sqlite3.prepare('SELECT * FROM VehicleDispatches WHERE date = ?').all(parsedDate);
+        let formattedEntries = [];
+        for (let entry of entries) {
+            formattedEntries.push({
+                vehicleId: entry.vehicle_id,
+                tripId: entry.trip_id,
+                routeShortName: entry.route_short_name,
+                tripHeadsign: entry.trip_headsign,
+                startTime: entry.start_time,
+                blockId: entry.block_id,
+            });
+        }
+        res.json(formattedEntries);
+    } catch (e) {
+        insertIntoLog(e.message + ' ' + e.stack);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);
     let delay = RT_UPDATE ? (RT_UPDATE.stopTimeUpdate[0]?.departure?.delay || RT_UPDATE.stopTimeUpdate[0]?.arrival?.delay || 0) : 0;
@@ -839,19 +879,15 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
 
 
 let VALID_CALENDAR_IDS = [];
+let lastCalendarSync = 0;
 
-async function getCalendarIds() {
-    if (VALID_CALENDAR_IDS.length > 0) return VALID_CALENDAR_IDS;
-    let calendar = await sqlite3.prepare('SELECT * FROM Calendar').all();
-    let calendar_dates = await sqlite3.prepare('SELECT * FROM CalendarDates').all();
+async function getCalendarIdsForDate(calendar, calendar_dates, date) {
     let validCalendarIds = [];
-    let today = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
-    let dayOfWeek = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('E');
-    console.log('Today is ' + dayOfWeek, today);
+    let dayOfWeek = luxon.DateTime.fromFormat(date, 'yyyyMMdd').setZone('Europe/Zagreb').toFormat('E');
     for (let cal of calendar) {
-        if (cal[dayOfWeek] == 1 && cal.start_date <= today && cal.end_date >= today) {
+        if (cal[dayOfWeek] == 1 && cal.start_date <= date && cal.end_date >= date) {
             // check if there is an exception
-            let exception = await calendar_dates.find(cd => cd.service_id == cal.service_id && cd.date == today);
+            let exception = await calendar_dates.find(cd => cd.service_id == cal.service_id && cd.date == date);
             if (exception) {
                 if (exception.exception_type == 1) {
                     validCalendarIds.push(cal.service_id);
@@ -861,7 +897,7 @@ async function getCalendarIds() {
             }
         } else {
             // check if there is an exception
-            let exception = await calendar_dates.find(cd => cd.service_id == cal.service_id && cd.date == today);
+            let exception = await calendar_dates.find(cd => cd.service_id == cal.service_id && cd.date == date);
             if (exception) {
                 if (exception.exception_type == 1) {
                     validCalendarIds.push(cal.service_id);
@@ -869,13 +905,35 @@ async function getCalendarIds() {
             }
         }
     }
+    return validCalendarIds;
+}
+
+
+async function getCalendarIds() {
+    let timeNow = luxon.DateTime.now().setZone('Europe/Zagreb').toMillis();
+    // recalc once every 3min
+    if (VALID_CALENDAR_IDS.length > 0 && timeNow - lastCalendarSync < 180000) {
+        return VALID_CALENDAR_IDS;
+    }
+    let calendar = await sqlite3.prepare('SELECT * FROM Calendar').all();
+    let calendar_dates = await sqlite3.prepare('SELECT * FROM CalendarDates').all();
+    let validCalendarIds = [];
+    let dates = [luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd')];
+    // if it's before 4am Zagreb time, also check for yesterday
+    if (luxon.DateTime.now().setZone('Europe/Zagreb').hour < 4) {
+        dates.push(luxon.DateTime.now().setZone('Europe/Zagreb').minus({ days: 1 }).toFormat('yyyyMMdd'));
+    }
+    for (let date of dates) {
+        let calendarIds = await getCalendarIdsForDate(calendar, calendar_dates, date);
+        validCalendarIds = validCalendarIds.concat(calendarIds);
+    }
     VALID_CALENDAR_IDS = validCalendarIds;
     return validCalendarIds;
 }
 
 async function insertIntoLog(message) {
     try {
-        await sqlite3.prepare('INSERT INTO Logs (log_message) VALUES (?)').run(message);
+        await sqlite3.prepare('INSERT INTO Logs (log_message) VALUES (?)').run(message || 'No message');
     } catch (e) {
         console.error(e);
     }
@@ -885,6 +943,30 @@ let RT_DATA = [];
 let VP_DATA = [];
 let VP_MAP = {};
 let VP_MAP2 = {};
+
+async function logVehicles() {
+    // Log vehicles based on RT data
+    let sql_stmt = 'INSERT INTO VehicleDispatches (trip_id, route_short_name, trip_headsign, block_id, vehicle_id, start_time, date) VALUES ';
+    let sql_values = [];
+    let date = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
+    for (let rt of RT_DATA) {
+        let trip = TRIPS.find(trip => trip.trip_id == rt.trip.tripId);
+        if (!trip) continue;
+        let vehicle = VP_MAP2[rt.trip.tripId];
+        let vehicle_id = '?';
+        if (vehicle) 
+            vehicle_id = vehicle.vehicle.id;
+        let tripStopTimes = STOP_TIMES_MAP[rt.trip.tripId];
+        if (!tripStopTimes) continue;
+        sql_stmt += '(?, ?, ?, ?, ?, ?, ?),';
+        sql_values.push(trip.trip_id, trip.route_short_name, trip.trip_headsign, trip.block_id, vehicle_id, tripStopTimes[0].departure_time, date);
+    }
+    sql_stmt = sql_stmt.slice(0, -1);
+    if (sql_values.length > 0) {
+        sql_stmt += ' ON CONFLICT(trip_id, date) DO UPDATE SET vehicle_id = EXCLUDED.vehicle_id';
+        await sqlite3.prepare(sql_stmt).run(sql_values);
+    }
+}
 
 async function getRtData() {
     while (true) {
@@ -912,6 +994,7 @@ async function getRtData() {
             VP_MAP = vehicle_map;
             VP_MAP2 = vehicle_map2;
             console.log('Updated RT data - ' + RT_DATA.length + ' updates, ' + VP_DATA.length + ' vehicles');
+            logVehicles();
         } catch (e) {
             insertIntoLog(e.message + ' ' + e.stack);
             console.error(e);
