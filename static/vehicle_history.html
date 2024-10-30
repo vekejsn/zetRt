@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historical Vehicle Data by ID</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .vehicle-data { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Povijesni pregled po vozilu</h1>
+    Podaci nisu nužno točni, tako da se ne preporučuje korištenje ovih podataka za analize i/ili donošenje odluka ili zaključaka. Upotreba je isključivo u informativne svrhe.
+    <hr>
+    <label for="vehicle-select">Interni broj</label>
+    <select id="vehicle-select">
+        <option value="">--Odaberi vozilo--</option>
+    </select>
+    
+    <div id="data-container" class="vehicle-data"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            await fetchVehicleIds();
+
+            const vehicleSelect = document.getElementById('vehicle-select');
+            vehicleSelect.addEventListener('change', fetchVehicleHistory);
+        });
+
+        async function fetchVehicleIds() {
+            const response = await fetch('/historic/vehicleids');
+            const vehicleIds = await response.json();
+
+            const vehicleSelect = document.getElementById('vehicle-select');
+            vehicleIds.forEach(id => {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = id;
+                vehicleSelect.appendChild(option);
+            });
+        }
+
+        async function fetchVehicleHistory() {
+            const vehicleId = document.getElementById('vehicle-select').value;
+            if (!vehicleId) return;
+
+            const response = await fetch(`/historic/vehicle/${encodeURIComponent(vehicleId)}`)
+            const data = await response.json();
+            displayVehicleHistory(data);
+        }
+
+        function displayVehicleHistory(data) {
+            const container = document.getElementById('data-container');
+            container.innerHTML = '';  // Clear previous data
+
+            if (data.length === 0) {
+                container.textContent = "No historical data available for this vehicle.";
+                return;
+            }
+
+            data.forEach(record => {
+                const formattedDate = `${record.date.slice(6, 8)}.${record.date.slice(4, 6)}.${record.date.slice(0, 4)}`;
+                const recordItem = document.createElement('div');
+                recordItem.textContent = `Linija ${record.routeShortName}, VR ${record.blockId}, dana ${formattedDate}`;
+                container.appendChild(recordItem);
+            });
+        }
+    </script>
+</body>
+</html>

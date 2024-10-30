@@ -716,6 +716,44 @@ app.get('/historical/:date', cache('30 seconds'), async (req, res) => {
     }
 });
 
+app.get('/historic/vehicleids', cache('1 minute'), async (req, res) => {
+    try {
+        let vehicleIds = await sqlite3.prepare('SELECT DISTINCT vehicle_id FROM VehicleDispatches').all();
+        let formattedVehicleIds = [];
+        for (let vehicleId of vehicleIds) {
+            formattedVehicleIds.push(vehicleId.vehicle_id);
+        }
+        res.json(formattedVehicleIds);
+    } catch (e) {
+        insertIntoLog(e.message + ' ' + e.stack);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
+    // get last 10 entries for a vehicle based on distinct block_id and date
+    try {
+        let vehicleId = req.params.id;
+        let offset = req.query.offset || 0;
+        let entries = await sqlite3.prepare('SELECT DISTINCT block_id, date, route_short_name FROM VehicleDispatches WHERE vehicle_id = ? ORDER BY date DESC LIMIT 10 OFFSET ?').all(vehicleId, offset);
+        let formattedEntries = [];
+        for (let entry of entries) {
+            formattedEntries.push({
+                date: entry.date,
+                tripId: entry.trip_id,
+                routeShortName: entry.route_short_name,
+                tripHeadsign: entry.trip_headsign,
+                startTime: entry.start_time,
+                blockId: entry.block_id,
+            });
+        }
+        res.json(formattedEntries);
+    } catch (e) {
+        insertIntoLog(e.message + ' ' + e.stack);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
 
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);
