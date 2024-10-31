@@ -1001,7 +1001,8 @@ async function logVehicles() {
     }
     sql_stmt = sql_stmt.slice(0, -1);
     if (sql_values.length > 0) {
-        sql_stmt += ' ON CONFLICT(trip_id, date) DO UPDATE SET vehicle_id = EXCLUDED.vehicle_id';
+        // Update unless vehicle_id in DB is already different from the question mark
+        sql_stmt += ' ON CONFLICT(trip_id, date) DO UPDATE SET vehicle_id = excluded.vehicle_id';
         await sqlite3.prepare(sql_stmt).run(sql_values);
     }
 }
