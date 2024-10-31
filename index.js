@@ -422,7 +422,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
         for (let stopTime of stopTimes) {
             let rtUpdate = RT_DATA.find(rt => rt.trip.tripId == stopTime.trip_id);
             if (rtUpdate) {
-                let stopTimeUpdate = rtUpdate.stopTimeUpdate[0]
+                let stopTimeUpdate = rtUpdate.stopTimeUpdate[0];
                 if (stopTimeUpdate) {
                     if (req.query.current) {
                         if (secondsFromMidnight > stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0)) {
@@ -1035,6 +1035,24 @@ async function getRtData() {
                 let data2 = [];
                 for (let entity of feed.entity) {
                     if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
+                        // since Transitclock doesn't directly report delays, we need to calculate them based on arrival.time or departure.time
+                        let delay = 0;
+                        // scheduled time is taken from the stoptime map for the trip
+                        let stopTimeMap = STOP_TIMES_MAP[entity.tripUpdate.trip.tripId];
+                        let tripDate = luxon.DateTime.fromformat(entity.tripUpdate.trip.startDate, 'yyyyMMdd').toMillis() / 1000;
+                        if (stopTimeMap) {
+                            for (let stopTimeUpdate of entity.tripUpdate.stopTimeUpdate) {
+                                let stopTime = stopTimeMap.find(stopTime => stopTime.stop_sequence == stopTimeUpdate.stopSequence);
+                                if (stopTime) {
+                                    let scheduledTime = stopTime.departure_time_int + tripDate;
+                                    let actualTime = (stopTime.departure.time || stopTime.arrival.time) - scheduledTime;
+                                    stopTimeUpdate.departure = stopTimeUpdate.departure || {};
+                                    stopTimeUpdate.departure.delay = actualTime;
+                                    stopTimeUpdate.arrival = stopTimeUpdate.arrival || {};
+                                    stopTimeUpdate.arrival.delay = actualTime;
+                                }
+                            }
+                        }
                         data.push(entity.tripUpdate);
                     }
                 }
