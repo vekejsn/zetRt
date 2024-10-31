@@ -990,10 +990,10 @@ async function logVehicles() {
     for (let rt of RT_DATA) {
         let trip = TRIPS.find(trip => trip.trip_id == rt.trip.tripId);
         if (!trip) continue;
-        let vehicle = VP_MAP2[rt.trip.tripId] || rt.vehicle?.id;
+        let vehicle = VP_MAP2[rt.trip.tripId] || rt;
         let vehicle_id = '?';
         if (vehicle) 
-            vehicle_id = vehicle.vehicle.id;
+            vehicle_id = vehicle?.vehicle?.id || '?';
         let tripStopTimes = STOP_TIMES_MAP[rt.trip.tripId];
         if (!tripStopTimes) continue;
         sql_stmt += '(?, ?, ?, ?, ?, ?, ?),';
