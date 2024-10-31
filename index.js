@@ -1021,13 +1021,29 @@ async function getRtData() {
                     vehicleData.push(entity.vehicle);
                 }
             }
-            RT_DATA = data;
             let vehicle_map = {}
             let vehicle_map2 = {}
             for (let vehicle of vehicleData) {
                 vehicle_map[vehicle.trip.tripId] = vehicle.vehicle.id;
                 vehicle_map2[vehicle.trip.tripId] = vehicle;
             }
+            // if there are less data entries than vehicleData entries by over 30% get the data again from Transitclock
+            if (data.length < vehicleData.length * 0.7) {
+                console.log('Data mismatch, getting data from Transitclock');
+                let rtData = await fetch('http://ijpp-transitclock:8080/api/v1/key/f78a2e9a/agency/0/command/gtfs-rt/tripUpdates?format=binary');
+                let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
+                let data2 = [];
+                for (let entity of feed.entity) {
+                    if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
+                        data.push(entity.tripUpdate);
+                    }
+                }
+                // if there are more data2 entries than data entries, use data2
+                if (data2.length > data.length) {
+                    data = data2;
+                }
+            }
+            RT_DATA = data;
             VP_DATA = vehicleData;
             VP_MAP = vehicle_map;
             VP_MAP2 = vehicle_map2;
