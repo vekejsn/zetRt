@@ -447,7 +447,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
                         blockId: stopTime.block_id,
                         realTime: true,
-                        vehicleId: VP_MAP[stopTime.trip_id] || 'XXX'
+                        vehicleId: VP_MAP[stopTime.trip_id] || rtUpdate.vehicle?.id || 'XXX'
                     });
                 }
             } else {
@@ -536,7 +536,7 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             stopTimes: formattedStopTimes,
             blockId: trip.block_id,
             realTime: RT_DATA.find(rt => rt.trip.tripId == tripId) ? true : false,
-            vehicleId: VP_MAP[tripId] || 'XXX'
+            vehicleId: VP_MAP[tripId] || RT_DATA.find(rt => rt.trip.tripId == tripId)?.vehicle?.id || 'XXX'
         });
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
@@ -990,7 +990,7 @@ async function logVehicles() {
     for (let rt of RT_DATA) {
         let trip = TRIPS.find(trip => trip.trip_id == rt.trip.tripId);
         if (!trip) continue;
-        let vehicle = VP_MAP2[rt.trip.tripId];
+        let vehicle = VP_MAP2[rt.trip.tripId] || rt.vehicle?.id;
         let vehicle_id = '?';
         if (vehicle) 
             vehicle_id = vehicle.vehicle.id;
