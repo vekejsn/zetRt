@@ -900,7 +900,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                         delay: RT_UPDATE.delay,
                         bearing: bearing,
                         realTime: RT_UPDATE.realTime,
-                        vehicleId: VP_MAP[trip.trip_id] || 'XXX'
+                        vehicleId: VP_MAP[trip.trip_id] || RT_UPDATE.vehicle?.id || 'XXX'
                     }
                 });
             }
@@ -1039,13 +1039,15 @@ async function getRtData() {
                         let delay = 0;
                         // scheduled time is taken from the stoptime map for the trip
                         let stopTimeMap = STOP_TIMES_MAP[entity.tripUpdate.trip.tripId];
-                        let tripDate = luxon.DateTime.fromformat(entity.tripUpdate.trip.startDate, 'yyyyMMdd').toMillis() / 1000;
+                        let tripDate = luxon.DateTime.fromFormat(entity.tripUpdate.trip.startDate, 'yyyyMMdd').toMillis() / 1000;
                         if (stopTimeMap) {
                             for (let stopTimeUpdate of entity.tripUpdate.stopTimeUpdate) {
+                                if ((stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay) || (stopTimeUpdate.departure && stopTimeUpdate.departure.delay))
+                                    continue;
                                 let stopTime = stopTimeMap.find(stopTime => stopTime.stop_sequence == stopTimeUpdate.stopSequence);
                                 if (stopTime) {
                                     let scheduledTime = stopTime.departure_time_int + tripDate;
-                                    let actualTime = (stopTime.departure.time || stopTime.arrival.time) - scheduledTime;
+                                    let actualTime = (stopTimeUpdate.departure?.time?.low || stopTimeUpdate.arrival?.time?.low) - scheduledTime;
                                     stopTimeUpdate.departure = stopTimeUpdate.departure || {};
                                     stopTimeUpdate.departure.delay = actualTime;
                                     stopTimeUpdate.arrival = stopTimeUpdate.arrival || {};
