@@ -1039,7 +1039,7 @@ async function getRtData() {
                         let delay = 0;
                         // scheduled time is taken from the stoptime map for the trip
                         let stopTimeMap = STOP_TIMES_MAP[entity.tripUpdate.trip.tripId];
-                        let tripDate = luxon.DateTime.fromFormat(entity.tripUpdate.trip.startDate, 'yyyyMMdd').toMillis() / 1000;
+                        let tripDate = luxon.DateTime.fromFormat(entity.tripUpdate.trip.startDate, 'yyyyMMdd', { zone: 'Europe/Zagreb' }).toMillis() / 1000;
                         if (stopTimeMap) {
                             for (let stopTimeUpdate of entity.tripUpdate.stopTimeUpdate) {
                                 if ((stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay) || (stopTimeUpdate.departure && stopTimeUpdate.departure.delay))
@@ -1047,6 +1047,8 @@ async function getRtData() {
                                 let stopTime = stopTimeMap.find(stopTime => stopTime.stop_sequence == stopTimeUpdate.stopSequence);
                                 if (stopTime) {
                                     let scheduledTime = stopTime.departure_time_int + tripDate;
+                                    // fix scheduled time to UTC
+                                    scheduledTime = luxon.DateTime.fromSeconds(scheduledTime, { zone: 'Europe/Zagreb' }).toUTC().toSeconds();
                                     let actualTime = (stopTimeUpdate.departure?.time?.low || stopTimeUpdate.arrival?.time?.low) - scheduledTime;
                                     stopTimeUpdate.departure = stopTimeUpdate.departure || {};
                                     stopTimeUpdate.departure.delay = actualTime;
@@ -1093,7 +1095,7 @@ app.use(express.static('static'));
 
 app.listen(port, async () => {
     await createTables();
-    await loadGtfs();
+    // await loadGtfs();
     getRtData();
     w_preloadData();
     console.log(`Server running on port ${port}`);
