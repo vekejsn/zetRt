@@ -7,6 +7,14 @@
     <style>
         body { font-family: Arial, sans-serif; }
         .vehicle-data { margin-top: 20px; }
+        .vehicle-table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        /* striped table */
+        .vehicle-table tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
     </style>
 </head>
 <body>
@@ -17,6 +25,7 @@
     <select id="vehicle-select">
         <option value="">--Odaberi vozilo--</option>
     </select>
+    <span id="vehicle-info"></span>
     
     <div id="data-container" class="vehicle-data"></div>
 
@@ -27,6 +36,8 @@
             const vehicleSelect = document.getElementById('vehicle-select');
             vehicleSelect.addEventListener('change', fetchVehicleHistory);
         });
+
+        let vehicle_data = [];
 
         async function fetchVehicleIds() {
             const response = await fetch('/historic/vehicleids');
@@ -39,12 +50,13 @@
                 option.textContent = id;
                 vehicleSelect.appendChild(option);
             });
+            vehicle_data = await fetch('/json/vehicles.json').then(response => response.json());
         }
 
         async function fetchVehicleHistory() {
             const vehicleId = document.getElementById('vehicle-select').value;
             if (!vehicleId) return;
-
+            document.getElementById('vehicle-info').textContent = vehicle_data.find(v => v.internalNo === vehicleId)?.model || 'Nepoznato';
             const response = await fetch(`/historic/vehicle/${encodeURIComponent(vehicleId)}`)
             const data = await response.json();
             displayVehicleHistory(data);
@@ -55,15 +67,46 @@
             container.innerHTML = '';  // Clear previous data
 
             if (data.length === 0) {
-                container.textContent = "No historical data available for this vehicle.";
+                container.textContent = "Nema podataka za odabrano vozilo.";
                 return;
             }
 
+            const table = document.createElement('table');
+            table.classList.add('vehicle-table');
+            table.innerHTML = `
+                <tr>
+                    <th style="width: 50px;">
+                        Datum
+                    </th>
+                    <th style="width: 50px;">
+                        Linija
+                    </th>
+                    <th style="width: 50px;">
+                        VR
+                    </th>
+                    <th>
+                        Polasci
+                    </th>
+                </tr>
+            `;
+            container.appendChild(table);
+
             data.forEach(record => {
                 const formattedDate = `${record.date.slice(6, 8)}.${record.date.slice(4, 6)}.${record.date.slice(0, 4)}`;
-                const recordItem = document.createElement('div');
-                recordItem.textContent = `Linija ${record.routeShortName}, VR ${record.blockId}, dana ${formattedDate}`;
-                container.appendChild(recordItem);
+                const recordItem = document.createElement('tr');
+                recordItem.innerHTML = `
+                    <td>${formattedDate}</td>
+                    <td style="text-align: center;">
+                        ${record.routeShortName}
+                    </td>
+                    <td style="text-align: center;">
+                        ${record.blockId}
+                    </td>
+                    <td style="text-align: center;">
+                        ${record.departures.join(', ')}
+                    </td>
+                `;
+                table.appendChild(recordItem);
             });
         }
     </script>

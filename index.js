@@ -718,11 +718,13 @@ app.get('/historical/:date', cache('30 seconds'), async (req, res) => {
 
 app.get('/historic/vehicleids', cache('1 minute'), async (req, res) => {
     try {
-        let vehicleIds = await sqlite3.prepare('SELECT DISTINCT vehicle_id FROM VehicleDispatches').all();
+        let vehicleIds = await sqlite3.prepare('SELECT DISTINCT vehicle_id FROM VehicleDispatches ORDER BY vehicle_id').all();
         let formattedVehicleIds = [];
         for (let vehicleId of vehicleIds) {
             formattedVehicleIds.push(vehicleId.vehicle_id);
         }
+        // sort by parseInt value
+        formattedVehicleIds = await formattedVehicleIds.sort((a, b) => parseInt(a) - parseInt(b));
         res.json(formattedVehicleIds);
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
@@ -735,7 +737,20 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
     try {
         let vehicleId = req.params.id;
         let offset = req.query.offset || 0;
-        let entries = await sqlite3.prepare('SELECT DISTINCT block_id, date, route_short_name FROM VehicleDispatches WHERE vehicle_id = ? ORDER BY date DESC LIMIT 10 OFFSET ?').all(vehicleId, offset);
+        let entries = await sqlite3.prepare(`SELECT DISTINCT
+                block_id,
+                date,
+                route_short_name,
+                (SELECT GROUP_CONCAT(start_time, ', ')
+                FROM VehicleDispatches AS vd2
+                WHERE vd2.block_id = vd1.block_id AND vd2.date = vd1.date AND vd2.vehicle_id = vd1.vehicle_id
+                ORDER BY start_time ASC
+                ) AS start_times
+            FROM VehicleDispatches AS vd1
+            WHERE vehicle_id = ?
+            ORDER BY date DESC
+            LIMIT 30 OFFSET ?
+        `).all(vehicleId, offset);
         let formattedEntries = [];
         for (let entry of entries) {
             formattedEntries.push({
@@ -745,6 +760,7 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
                 tripHeadsign: entry.trip_headsign,
                 startTime: entry.start_time,
                 blockId: entry.block_id,
+                departures: entry.start_times.split(', ')
             });
         }
         res.json(formattedEntries);
