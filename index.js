@@ -1008,12 +1008,15 @@ async function logVehicles() {
         if (!trip) continue;
         let vehicle = VP_MAP2[rt.trip.tripId] || rt;
         let vehicle_id = '?';
-        if (vehicle) 
+        let local_date = rt.trip.startDate || date;
+        if (vehicle)  {
             vehicle_id = vehicle?.vehicle?.id || '?';
+            local_date = vehicle?.trip?.startDate || local_date;
+        }
         let tripStopTimes = STOP_TIMES_MAP[rt.trip.tripId];
         if (!tripStopTimes) continue;
         sql_stmt += '(?, ?, ?, ?, ?, ?, ?),';
-        sql_values.push(trip.trip_id, trip.route_short_name, trip.trip_headsign, trip.block_id, vehicle_id, tripStopTimes[0].departure_time, date);
+        sql_values.push(trip.trip_id, trip.route_short_name, trip.trip_headsign, trip.block_id, vehicle_id, tripStopTimes[0].departure_time, local_date);
     }
     sql_stmt = sql_stmt.slice(0, -1);
     if (sql_values.length > 0) {
