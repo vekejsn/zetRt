@@ -743,7 +743,7 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
                 route_short_name,
                 (SELECT GROUP_CONCAT(start_time, ', ')
                 FROM VehicleDispatches AS vd2
-                WHERE vd2.block_id = vd1.block_id AND vd2.date = vd1.date AND vd2.vehicle_id = vd1.vehicle_id
+                WHERE vd2.block_id = vd1.block_id AND vd2.date = vd1.date AND vd2.vehicle_id = vd1.vehicle_id AND vd2.route_short_name = vd1.route_short_name
                 ORDER BY start_time ASC
                 ) AS start_times
             FROM VehicleDispatches AS vd1
