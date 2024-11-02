@@ -1026,6 +1026,78 @@ async function logVehicles() {
     }
 }
 
+async function addActiveTripsToDb() {
+    try {
+        const BATCH_SIZE = 1500;
+        let active_calendar_ids = await getCalendarIds();
+        let date = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
+        let trips = await sqlite3.prepare(
+            'SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' +
+            active_calendar_ids.map(() => '?').join(',') + ')'
+        ).all(active_calendar_ids);
+    
+        let sql_stmt = 'INSERT INTO TripArchive (trip_id, route_short_name, trip_headsign, block_id, start_time, date) VALUES ';
+        let sql_values = [];
+    
+        for (let trip of trips) {
+            let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
+            if (!tripStopTimes) continue;
+    
+            sql_stmt += '(?, ?, ?, ?, ?, ?),';
+            sql_values.push(trip.trip_id, trip.route_short_name, trip.trip_headsign, trip.block_id, tripStopTimes[0].departure_time, date);
+    
+            // When the sql_values array reaches the batch size, execute the batch insert
+            if (sql_values.length >= BATCH_SIZE * 6) {
+                sql_stmt = sql_stmt.slice(0, -1); // Remove trailing comma
+                sql_stmt += ' ON CONFLICT(trip_id, date) DO NOTHING';   
+                await sqlite3.prepare(sql_stmt).run(sql_values);
+                // Reset sql statement and values for the next batch
+                sql_stmt = 'INSERT INTO TripArchive (trip_id, route_short_name, trip_headsign, block_id, start_time, date) VALUES ';
+                sql_values = [];
+            }
+        }
+    
+        // Insert any remaining records if they don't fill an entire batch
+        if (sql_values.length > 0) {
+            sql_stmt = sql_stmt.slice(0, -1); // Remove trailing comma
+            sql_stmt += ' ON CONFLICT(trip_id, date) DO NOTHING';
+            await sqlite3.prepare(sql_stmt).run(sql_values);
+        }
+    
+        console.log('Added ' + trips.length + ' active trips to the archive');
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+app.get('/historic/trips/data', cache('1 minute'), async (req, res) => {
+    try {
+        // return the lists of distinct route_short_names and dates for which there are trips
+        let route_short_names = await sqlite3.prepare('SELECT DISTINCT route_short_name FROM TripArchive ORDER BY route_short_name').all();
+        let dates = await sqlite3.prepare('SELECT DISTINCT date FROM TripArchive ORDER BY date DESC').all();
+        res.json({ route_short_names: route_short_names.map(r => r.route_short_name), dates: dates.map(d => d.date) });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+app.get('/historic/trips/:route_short_name/:date', cache('1 minute'), async (req, res) => {
+    try {
+        let route_short_name = req.params.route_short_name;
+        let date = req.params.date;
+        let trips = await sqlite3.prepare(`select ta.*, vd.vehicle_id from TripArchive ta
+        left join VehicleDispatches vd on vd.trip_id = ta.trip_id and vd.date = ta.date
+        where ta.date = ? and ta.route_short_name = ?
+        ORDER BY ta.start_time ASC`).all(date, route_short_name);
+        res.json(trips);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+
 async function getRtData() {
     while (true) {
         try {
@@ -1103,6 +1175,7 @@ async function w_preloadData() {
     while (true) {
         try {
             await preloadData();
+            addActiveTripsToDb();
         } catch (e) {
             console.error(e);
         }

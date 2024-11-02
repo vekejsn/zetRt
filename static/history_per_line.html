@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trip Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    .vehicle-table tr:nth-child(even) {
+      background-color: #f2f2f2;
+   }
+    th, td {
+      border: 1px solid black;
+      padding: 8px;
+      text-align: center;
+    }
+    sup, sub {
+      font-size: 0.7em;
+    }
+    .hour {
+      width: 5%;
+    }
+    .minute {
+      width: 95%;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Povijesni pregled po linijama</h1>
+  <label for="routeSelect">Linija:</label>
+  <select id="routeSelect">
+    <option value="">Odaberi liniju</option>
+  </select>
+
+  <label for="dateSelect">Datum:</label>
+  <select id="dateSelect">
+    <option value="">Odaberi datum</option>
+  </select>
+
+  <button onclick="fetchTripDetails()">Prikaži</button>
+
+  <div id="tripInfo"></div>
+
+  <script>
+    async function fetchInitialData() {
+      const response = await fetch('/historic/trips/data');
+      const data = await response.json();
+
+      const routeSelect = document.getElementById('routeSelect');
+      data.route_short_names.sort((a, b) => parseInt(a) - parseInt(b)).forEach(route => {
+        const option = document.createElement('option');
+        option.value = route;
+        option.text = route;
+        routeSelect.add(option);
+      });
+
+      const dateSelect = document.getElementById('dateSelect');
+      data.dates.forEach(date => {
+        const option = document.createElement('option');
+        option.value = date;
+        option.text = date;
+        dateSelect.add(option);
+      });
+    }
+
+    async function fetchTripDetails() {
+      const route = document.getElementById('routeSelect').value;
+      const date = document.getElementById('dateSelect').value;
+
+      if (!route || !date) {
+        alert("Izaberite liniju i datum.");
+        return;
+      }
+
+      const response = await fetch(`/historic/trips/${route}/${date}`);
+      const trips = await response.json();
+
+      if (trips.length === 0) {
+        document.getElementById('tripInfo').innerHTML = "<p>Ne postoje podaci za odabranu liniju i datum.</p>";
+        return;
+      }
+
+      // Structure data by destination and then by hour and minute
+      const struct = {};
+
+      trips.forEach(trip => {
+        const destination = trip.trip_headsign;
+        const hour = trip.start_time.split(':')[0];
+        const minute = trip.start_time.split(':')[1];
+        
+        if (!struct[destination]) {
+          struct[destination] = {};
+        }
+        
+        if (!struct[destination][hour]) {
+          struct[destination][hour] = [];
+        }
+
+        struct[destination][hour].push({
+          minute: minute,
+          block_id: trip.block_id,
+          vehicle_id: trip.vehicle_id
+        });
+      });
+
+      const container = document.getElementById('tripInfo');
+      container.innerHTML = '';
+
+      // Display each destination with its trips in a separate table
+      Object.keys(struct).forEach(destination => {
+        const tripHeadSignHeader = document.createElement('h2');
+        tripHeadSignHeader.innerHTML = `Odredište: ${destination}`;
+        container.appendChild(tripHeadSignHeader);
+
+        let table = `<table class="vehicle-table">
+          <tr>
+            <th class="hour">h</th>
+            <th class="minute">m<sub>VR</sub><sup>vozilo</sup></th>
+          </tr>`;
+
+        // Sort hours and populate table rows for each destination
+        const sortedHours = Object.keys(struct[destination]).sort((a, b) => parseInt(a) - parseInt(b));
+        sortedHours.forEach(hour => {
+          table += `<tr><td><b>${hour}</b></td><td>`;
+
+          // Sort minutes and format each entry for the hour
+          const minutes = struct[destination][hour].sort((a, b) => parseInt(a.minute) - parseInt(b.minute));
+          const minuteEntries = minutes.map(trip => 
+            `<b>${trip.minute}</b><sub>${trip.block_id}</sub><sup>${trip.vehicle_id || '?'}</sup>`
+          );
+
+          table += minuteEntries.join(", ");
+          table += `</td></tr>`;
+        });
+
+        table += '</table>';
+        container.innerHTML += table;
+      });
+    }
+
+    fetchInitialData();
+  </script>
+
+</body>
+</html>
