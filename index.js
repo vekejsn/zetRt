@@ -367,14 +367,14 @@ const loadGtfs = async () => {
                     console.log('Inserted final batch of stop_times');
                 }
                 console.log('Completed processing stop_times.');
+                addActiveTripsToDb();
             }
         });
 
     } catch (e) {
         console.error(e);
     }
-
-    let b = 0;
+    
 }
 
 const port = 8910;
@@ -1190,6 +1190,5 @@ app.listen(port, async () => {
     await loadGtfs();
     getRtData();
     w_preloadData();
-    addActiveTripsToDb();
     console.log(`Server running on port ${port}`);
 });
