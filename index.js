@@ -1175,7 +1175,6 @@ async function w_preloadData() {
     while (true) {
         try {
             await preloadData();
-            addActiveTripsToDb();
         } catch (e) {
             console.error(e);
         }
@@ -1191,5 +1190,6 @@ app.listen(port, async () => {
     await loadGtfs();
     getRtData();
     w_preloadData();
+    addActiveTripsToDb();
     console.log(`Server running on port ${port}`);
 });
