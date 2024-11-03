@@ -121,7 +121,7 @@
         let table = `<table class="vehicle-table">
           <tr>
             <th class="hour">h</th>
-            <th class="minute">m<sub>VR</sub><sup>vozilo</sup></th>
+            <th class="minute">m<sub>VR</sub><sup><u>vozilo</u></sup></th>
           </tr>`;
 
         // Sort hours and populate table rows for each destination
@@ -132,7 +132,7 @@
           // Sort minutes and format each entry for the hour
           const minutes = struct[destination][hour].sort((a, b) => parseInt(a.minute) - parseInt(b.minute));
           const minuteEntries = minutes.map(trip => 
-            `<b>${trip.minute}</b><sub>${trip.block_id.slice(-2)}</sub><sup>${trip.vehicle_id || '?'}</sup>`
+            `<b>${trip.minute}</b><sub>${trip.block_id.slice(-2)}</sub><sup><u>${trip.vehicle_id || '?'}</u></sup>`
           );
 
           table += minuteEntries.join(", ");
