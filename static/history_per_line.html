@@ -132,11 +132,7 @@
           // Sort minutes and format each entry for the hour
           const minutes = struct[destination][hour].sort((a, b) => parseInt(a.minute) - parseInt(b.minute));
           const minuteEntries = minutes.map(trip => 
-            `<b>${trip.minute}</b>
-            <sub>
-              ${trip.block_id.slice(-2)}
-            </sub>
-            <sup>${trip.vehicle_id || '?'}</sup>`
+            `<b>${trip.minute}</b><sub>${trip.block_id.slice(-2)}</sub><sup>${trip.vehicle_id || '?'}</sup>`
           );
 
           table += minuteEntries.join(", ");
