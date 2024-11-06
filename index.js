@@ -122,11 +122,11 @@ const createTables = () => {
     }
 }
 
-const loadGtfs = async () => {
+const loadGtfs = async (url) => {
     createTables();
     console.log('Loading GTFS data...');
     // Download GTFS
-    const gtfsZip = await fetch(CONFIG.GTFS_ZIPPED).then(response => response.buffer());
+    const gtfsZip = await fetch(url || CONFIG.GTFS_ZIPPED).then(response => response.buffer());
     fs.writeFileSync('gtfs.zip', gtfsZip);
     console.log('Downloaded GTFS data');
     // Unzip GTFS
@@ -178,6 +178,23 @@ const loadGtfs = async () => {
         calendarDatesStr = calendarDatesStr.slice(0, -1);
         await sqlite3.prepare(calendarDatesStr).run(calendarDatesValues);
         console.log('Inserted calendar_dates');
+
+        // Attempt to validate that there is in fact an active service for today
+        let today = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
+        let services = await getCalendarIdsForDate(today);
+        if (services.length === 0) {
+            console.error('No active services for today');
+            // Fetch zet.hr/gtfs2 and regex match the URL's that are of the format <a href="/gtfs-scheduled/scheduled-*">
+            // Then download the file and extract it
+            let re = /<a href="\/gtfs-scheduled\/scheduled-([0-9\-]+)\.zip">/g
+            let gtfs2 = await fetch('https://zet.hr/gtfs2').then(response => response.text());
+            let matches = [...gtfs2.matchAll(re)];
+            // We should take the 2nd match, as the first one is the latest that in fact doesn't work for today
+            let files = matches.map(match => match[1]);
+            console.log('Available files:', files);
+            let gtfs2Url = `https://zet.hr/gtfs-scheduled/scheduled-${files[1]}.zip`;
+            await loadGtfs(gtfs2Url);
+        }
 
         calendar_dates = null;
         calendarDatesValues = null;
