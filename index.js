@@ -192,7 +192,7 @@ const loadGtfs = async (url) => {
             let files = matches.map(match => match[1]);
             console.log('Available files:', files);
             let gtfs2Url = `https://zet.hr/gtfs-scheduled/scheduled-${files[1]}.zip`;
-            await loadGtfs(gtfs2Url);
+            return await loadGtfs(gtfs2Url);
         }
 
         calendar_dates = null;
@@ -869,6 +869,7 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
+    console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', tripIds.length);
     SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
     SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
@@ -883,6 +884,8 @@ async function preloadData() {
         return acc;
     }
         , {});
+    console.log('Have shapes map', Object.keys(SHAPES_MAP).length, 'stop times map', Object.keys(STOP_TIMES_MAP).length);
+    console.log('Preloaded data');
 }
 
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
