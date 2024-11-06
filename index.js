@@ -180,7 +180,7 @@ const loadGtfs = async (url) => {
         console.log('Inserted calendar_dates');
 
         // Attempt to validate that there is in fact an active service for today
-        let today = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
+        let today = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyy-MM-dd');
         let services = await getCalendarIdsForDate(today);
         if (services.length === 0) {
             console.error('No active services for today');
