@@ -732,6 +732,36 @@ app.get('/historic/vehicleids', cache('1 minute'), async (req, res) => {
     }
 });
 
+app.get('/historic/vehicleids/details', cache('1 minute'), async (req, res) => {
+    try {
+        let vehicleIds = await sqlite3.prepare(`
+            SELECT vehicle_id, block_id, date, route_short_name
+            FROM VehicleDispatches
+            WHERE (vehicle_id, date, start_time) IN (
+                SELECT vehicle_id, MAX(date) AS date, MAX(start_time) AS start_time
+                FROM VehicleDispatches
+                GROUP BY vehicle_id
+            )
+            ORDER BY CAST(vehicle_id AS INTEGER) ASC
+        `).all();
+        let formattedVehicleIds = [];
+        for (let vehicleId of vehicleIds) {
+            formattedVehicleIds.push({
+                vehicleId: vehicleId.vehicle_id,
+                blockId: vehicleId.block_id,
+                date: vehicleId.date,
+                routeShortName: vehicleId.route_short_name
+            });
+        }
+        // sort by integer of vehicle_id
+        formattedVehicleIds = await formattedVehicleIds.sort((a, b) => parseInt(a.vehicleId) - parseInt(b.vehicleId));
+        res.json(formattedVehicleIds);
+    } catch (e) {
+        insertIntoLog(e.message + ' ' + e.stack);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
 app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
     // get last 10 entries for a vehicle based on distinct block_id and date
     try {

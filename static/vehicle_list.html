@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle list</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        /* striped table */
+        #vehicle-list tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+     <div class="body">
+        <h1>Pregled spiska vozila</h1>
+        Podaci nisu nužno točni, tako da se ne preporučuje korištenje ovih podataka za analize i/ili donošenje odluka ili zaključaka. Upotreba je isključivo u informativne svrhe.
+        <hr>
+        <table id="vehicle-list" style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <th>Interni broj</th>
+                <th>Model</th>
+                <th>Datum</th>
+                <th>Linija</th>
+                <th>VR</th>
+            </tr>
+            <tbody id="vehicle-list-body">
+            </tbody>
+        </table>
+     </div>
+</body>
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        await fetchVehicleList();
+    });
+
+    async function fetchVehicleList() {
+        const response = await fetch('/json/vehicles.json');
+        const vehicles = await response.json();
+
+        const vehicleList = await fetch('/historic/vehicleids/details').then(response => response.json());
+        const tablebody = document.getElementById('vehicle-list-body');
+        for (let vehicleDetails of vehicleList) {
+            if (vehicleDetails.vehicleId == '?') continue;
+            const row = document.createElement('tr');
+            const vehicle = await vehicles.find(v => v.internalNo === vehicleDetails.vehicleId);
+            row.innerHTML = `
+            <td>${vehicle?.internalNo || 'N/A'}</td>
+            <td>${vehicle?.model || 'N/A'}</td>
+            <td>${vehicleDetails.date || 'N/A'}</td>
+            <td>${vehicleDetails.routeShortName || 'N/A'}</td>
+            <td>${vehicleDetails.blockId || 'N/A'}</td>
+            `;
+            tablebody.appendChild(row);
+        }
+    }
+</script>
+</html>
