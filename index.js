@@ -122,11 +122,11 @@ const createTables = () => {
     }
 }
 
-const loadGtfs = async () => {
+const loadGtfs = async (url) => {
     createTables();
     console.log('Loading GTFS data...');
     // Download GTFS
-    const gtfsZip = await fetch(CONFIG.GTFS_ZIPPED).then(response => response.buffer());
+    const gtfsZip = await fetch(url || CONFIG.GTFS_ZIPPED).then(response => response.buffer());
     fs.writeFileSync('gtfs.zip', gtfsZip);
     console.log('Downloaded GTFS data');
     // Unzip GTFS
@@ -178,6 +178,22 @@ const loadGtfs = async () => {
         calendarDatesStr = calendarDatesStr.slice(0, -1);
         await sqlite3.prepare(calendarDatesStr).run(calendarDatesValues);
         console.log('Inserted calendar_dates');
+
+        // Attempt to validate that there is in fact an active service for today
+        let services = await getCalendarIds();
+        if (services.length === 0) {
+            console.error('No active services for today');
+            // Fetch zet.hr/gtfs2 and regex match the URL's that are of the format <a href="/gtfs-scheduled/scheduled-*">
+            // Then download the file and extract it
+            let re = /<a href="\/gtfs-scheduled\/scheduled-([0-9\-]+)\.zip">/g
+            let gtfs2 = await fetch('https://zet.hr/gtfs2').then(response => response.text());
+            let matches = [...gtfs2.matchAll(re)];
+            // We should take the 2nd match, as the first one is the latest that in fact doesn't work for today
+            let files = matches.map(match => match[1]);
+            console.log('Available files:', files);
+            let gtfs2Url = `https://zet.hr/gtfs-scheduled/scheduled-${files[1]}.zip`;
+            return await loadGtfs(gtfs2Url);
+        }
 
         calendar_dates = null;
         calendarDatesValues = null;
@@ -883,6 +899,7 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
+    console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', tripIds.length);
     SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
     SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
@@ -897,6 +914,8 @@ async function preloadData() {
         return acc;
     }
         , {});
+    console.log('Have shapes map', Object.keys(SHAPES_MAP).length, 'stop times map', Object.keys(STOP_TIMES_MAP).length);
+    console.log('Preloaded data');
 }
 
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
