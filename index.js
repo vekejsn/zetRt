@@ -816,6 +816,19 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
     }
 });
 
+app.get('/database/dump_as_file', async (req, res) => {
+    try {
+        // read db file and send it as response
+        let dbFile = await fs.promises.readFile('./zet.sqlite3');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', 'attachment; filename=zet.sqlite3');
+        res.send(dbFile);
+    } catch (e) {
+        insertIntoLog(e.message + ' ' + e.stack);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
 
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);
