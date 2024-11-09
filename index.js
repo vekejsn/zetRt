@@ -816,14 +816,23 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
     }
 });
 
-app.get('/database/dump_as_file', async (req, res) => {
+app.get('/database/dump_as_file', (req, res) => {
     try {
-        // read db file and send it as response
-        let dbFile = await fs.promises.readFile('./zet.sqlite3');
+        // Create a read stream for the database file
+        const dbFileStream = fs.createReadStream('./zet.sqlite3');
+        
+        // Set headers for the file download
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', 'attachment; filename=zet.sqlite3');
-        res.send(dbFile);
-        res.end();
+        
+        // Pipe the file stream directly to the response
+        dbFileStream.pipe(res);
+
+        // Handle stream errors
+        dbFileStream.on('error', (err) => {
+            insertIntoLog(err.message + ' ' + err.stack);
+            res.status(500).json({ message: 'Internal Server Error' });
+        });
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
         res.status(500).json({ message: 'Internal Server Error' });
