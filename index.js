@@ -751,14 +751,9 @@ app.get('/historic/vehicleids', cache('1 minute'), async (req, res) => {
 app.get('/historic/vehicleids/details', cache('1 minute'), async (req, res) => {
     try {
         let vehicleIds = await sqlite3.prepare(`
-            SELECT vehicle_id, block_id, date, route_short_name
-            FROM VehicleDispatches
-            WHERE (vehicle_id, date, start_time) IN (
-                SELECT vehicle_id, MAX(date) AS date, MAX(start_time) AS start_time
-                FROM VehicleDispatches
-                GROUP BY vehicle_id
-            )
-            ORDER BY CAST(vehicle_id AS INTEGER) ASC
+            select vehicle_id, route_short_name, block_id, max(date) as date, max(start_time) as start_time from VehicleDispatches
+            group by vehicle_id
+            ORDER BY CAST(vehicle_id AS INTEGER) ASC;
         `).all();
         let formattedVehicleIds = [];
         for (let vehicleId of vehicleIds) {
@@ -766,7 +761,8 @@ app.get('/historic/vehicleids/details', cache('1 minute'), async (req, res) => {
                 vehicleId: vehicleId.vehicle_id,
                 blockId: vehicleId.block_id,
                 date: vehicleId.date,
-                routeShortName: vehicleId.route_short_name
+                routeShortName: vehicleId.route_short_name,
+                startTime: vehicleId.start_time
             });
         }
         // sort by integer of vehicle_id
