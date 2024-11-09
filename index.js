@@ -823,6 +823,7 @@ app.get('/database/dump_as_file', async (req, res) => {
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', 'attachment; filename=zet.sqlite3');
         res.send(dbFile);
+        res.end();
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
         res.status(500).json({ message: 'Internal Server Error' });
