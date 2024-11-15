@@ -1169,7 +1169,7 @@ app.get('/historic/trips/:route_short_name/:date', cache('1 minute'), async (req
 async function getRtData() {
     while (true) {
         try {
-            let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES);
+            let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES, { signal: AbortSignal.timeout(10000)});
             let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
             let data = [];
             let vehicleData = [];
@@ -1188,7 +1188,7 @@ async function getRtData() {
                 vehicle_map2[vehicle.trip.tripId] = vehicle;
             }
             // if there are less data entries than vehicleData entries by over 30% get the data again from Transitclock
-            if (data.length < vehicleData.length * 0.7) {
+            if (data.length < vehicleData.length * 0.3) {
                 console.log('Data mismatch, getting data from Transitclock');
                 let rtData = await fetch('http://ijpp-transitclock:8080/api/v1/key/f78a2e9a/agency/0/command/gtfs-rt/tripUpdates?format=binary');
                 let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
