@@ -48,7 +48,7 @@
             const row = document.createElement('tr');
             const vehicle = await vehicles.find(v => v.internalNo === vehicleDetails.vehicleId);
             row.innerHTML = `
-            <td>${vehicle?.internalNo || 'N/A'}</td>
+            <td>${vehicleDetails.internalNo || 'N/A'}</td>
             <td>${vehicle?.model || 'N/A'}</td>
             <td>${vehicleDetails.date || 'N/A'}</td>
             <td>${vehicleDetails.routeShortName || 'N/A'}</td>
