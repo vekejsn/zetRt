@@ -858,7 +858,7 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
         distance = tripStopTimes[tripStopTimes.length - 1].shape_dist_traveled;
     }
     const tripShape = shapesMap[trip.shape_id];
-    if (tripShape.length === 0) {
+    if (!tripShape) {
         // give the GPS coordinates of the vehicle);
         let vl_update = VP_MAP[trip.trip_id];
         if (!vl_update) {
