@@ -864,7 +864,7 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
         if (!vl_update) {
             return [0, 0, 0];
         }
-        return [vl_update.lat, vl_update.lon, 0];
+        return [vl_update.location.lat, vl_update.location.lon, vl_update.position.bearing || 0];
     }
     const { lat, lon, previousShapePoint, nextShapePoint } = interpolatePosition(tripShape, distance);
     const bearing = calculateBearing(previousShapePoint, nextShapePoint);
