@@ -858,6 +858,14 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
         distance = tripStopTimes[tripStopTimes.length - 1].shape_dist_traveled;
     }
     const tripShape = shapesMap[trip.shape_id];
+    if (tripShape.length === 0) {
+        // give the GPS coordinates of the vehicle);
+        let vl_update = VP_MAP[trip.trip_id];
+        if (!vl_update) {
+            return [0, 0, 0];
+        }
+        return [vl_update.lat, vl_update.lon, 0];
+    }
     const { lat, lon, previousShapePoint, nextShapePoint } = interpolatePosition(tripShape, distance);
     const bearing = calculateBearing(previousShapePoint, nextShapePoint);
 
