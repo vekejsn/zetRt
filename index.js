@@ -282,13 +282,16 @@ const loadGtfs = async (url) => {
             localTripsStr += '(?, ?, ?, ?, ?, ?, ?),';
             localTripsValues.push(row.route_id, row.service_id, row.trip_id, row.trip_headsign, row.direction_id, row.block_id, row.shape_id);
             tripToShapeMap[row.trip_id] = row.shape_id;
+            if (!shapeMap[row.shape_id]) {
+                shapeMap[row.shape_id] = [];
+            }
             counter++;
         }
         localTripsStr = localTripsStr.slice(0, -1);
         await sqlite3.prepare(localTripsStr).run(localTripsValues);
         console.log('Inserted trips');
 
-     trips = null;
+        trips = null;
         localTripsValues = null;
         localTripsStr = null;
 
