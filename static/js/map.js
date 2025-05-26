@@ -126,7 +126,9 @@ async function generateVehicleMarkers() {
                 route_id: vehicles[i].properties.routeId,
                 route_name: vehicles[i].properties.routeLongName,
                 vehicle_lat: vehicles[i].geometry.coordinates[1],
-                vehicle_lon: vehicles[i].geometry.coordinates[0]
+                vehicle_lon: vehicles[i].geometry.coordinates[0],
+                interpolated: vehicles[i].properties.interpolated ? vehicles[i].properties.interpolated : false,
+                timestamp: vehicles[i].properties.timestamp ? vehicles[i].properties.timestamp : new Date().getTime() / 1000
             }
             processedVehicles.push(schedule);
         } else if (!processedVehicles.includes(schedule)) {
@@ -160,7 +162,9 @@ async function generateVehicleMarkers() {
                 route_id: vehicles[i].properties.routeId,
                 route_name: vehicles[i].properties.routeLongName,
                 vehicle_lat: vehicles[i].geometry.coordinates[1],
-                vehicle_lon: vehicles[i].geometry.coordinates[0]
+                vehicle_lon: vehicles[i].geometry.coordinates[0],
+                interpolated: vehicles[i].properties.interpolated ? vehicles[i].properties.interpolated : false,
+                timestamp: vehicles[i].properties.timestamp ? vehicles[i].properties.timestamp : new Date().getTime() / 1000
             }
             vehicle_markers[schedule].on('dblclick', async (e) => {
                 // generate trip details for vehicle
@@ -173,7 +177,7 @@ async function generateVehicleMarkers() {
     }
     //console.log(vehicle_markers);
     // check again in 20s
-    setTimeout(generateVehicleMarkers, 20000);
+    setTimeout(generateVehicleMarkers, 10000);
 }
 
 let GLOBAL_TIME = 0;
@@ -202,7 +206,7 @@ async function generateArrivals(data, update, time) {
     // generate route_info
     let routeInfo = document.createElement('div');
     routeInfo.className = 'route-info container';
-    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true; document.getElementById('bottom-data').innerHTML='';"><i class="bi bi-x-lg"></i></div>`;
+    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true;document.getElementById('bottom-data').innerHTML='';  polylineLayer.clearLayers(); polylineObject = null;"><i class="bi bi-x-lg"></i></div>`;
     routeInfo.innerHTML += `<span style="font-weight: bold; font-size: 1.5rem;">${data.stop_name}</span> <span style="font-size:0.75rem">${data.stop_id}</span>`;
     routeInfo.id = data.stop_id;
     bottomData.appendChild(routeInfo);
@@ -388,7 +392,7 @@ async function generateRouteSchedule(route_id, bool) {
     let routeInfo = document.createElement('div');
     routeInfo.className = 'route-info';
     routeInfo.id = `route-info-${route_id}`;
-    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true; document.getElementById('bottom-data').innerHTML='';"><i class="bi bi-x-lg"></i></div>`;
+    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true;document.getElementById('bottom-data').innerHTML='';  polylineLayer.clearLayers(); polylineObject = null;"><i class="bi bi-x-lg"></i></div>`;
     routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Vozni red za liniju ${route.routeShortName}</span><br>`
     routeInfo.innerHTML += `<span style="font-size:1.2rem"><span class="route_name_number">${route.routeShortName}</span> ${route.routeLongName}</span>`;
     routeInfo.innerHTML += `<hr>`;
@@ -516,8 +520,11 @@ async function generateRouteSchedule(route_id, bool) {
 
 async function getVehicleData(vehicle_id) {
     let vehicle = vehicleData.find(vehicle => vehicle.internalNo == vehicle_id);
-    return vehicle ? `${vehicle_id} - ${vehicle.model.trim()} ${vehicle.registrationNumber.length > 0 ? `(${vehicle.registrationNumber.trim()})` : ''}` : vehicle_id;
+    let str = vehicle ? `${vehicle_id} - ${vehicle.model.trim()} ${vehicle.registrationNumber.length > 0 ? `(${vehicle.registrationNumber.trim()})` : ''}` : vehicle_id;
+    return str.trim()
 }
+
+let polylineObject = null;
 
 async function generateTripDetails(trip_id, location_bool) {
     // check if there is a marker with same trip_id
@@ -533,16 +540,21 @@ async function generateTripDetails(trip_id, location_bool) {
         }
     }
     let response = await fetch(`/trips/${trip_id}`);
-    let polyline = await fetch(`/trips/${trip_id}/shape`).then(res => res.json());
 
-    polylineLayer.clearLayers();
-    let polylineData = polyline.geometry.coordinates;
-    let polylineArray = [];
-    for (let i in polylineData) {
-        polylineArray.push([polylineData[i][1], polylineData[i][0]]);
+
+    if (!polylineObject || polylineObject.tripId != trip_id) {
+        let polyline = await fetch(`/trips/${trip_id}/shape`).then(res => res.json());
+
+        polylineLayer.clearLayers();
+        let polylineData = polyline.geometry.coordinates;
+        let polylineArray = [];
+        for (let i in polylineData) {
+            polylineArray.push([polylineData[i][1], polylineData[i][0]]);
+        }
+
+        polylineObject = await L.polyline.antPath(polylineArray, { "delay": 4000, color: '#1264AB', weight: 6, opacity: 0.5, smoothFactor: 1 }).addTo(polylineLayer);
+        polylineObject.tripId = trip_id;
     }
-
-    let polylineObject = await L.polyline.antPath(polylineArray, { "delay": 4000, color: '#1264AB', weight: 6, opacity: 0.5, smoothFactor: 1 }).addTo(polylineLayer);
 
     let data = await response.json();
     //(data);
@@ -553,24 +565,36 @@ async function generateTripDetails(trip_id, location_bool) {
     let routeInfo = document.createElement('div');
     routeInfo.id = `route-info-${trip_id}`;
     bottomData.appendChild(routeInfo);
-    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true; document.getElementById('bottom-data').innerHTML='';"><i class="bi bi-x-lg"></i></div>`;
+    routeInfo.innerHTML = `<div class="exit-button" onclick="document.getElementById('bottom-data').hidden = true;document.getElementById('bottom-data').innerHTML='';  polylineLayer.clearLayers(); polylineObject = null;"><i class="bi bi-x-lg"></i></div>`;
         routeInfo.innerHTML += `<span style="color:darkgrey; font-size:0.75rem">Linija ${data.routeShortName} / VR ${data.blockId} / Polazak ${data.tripId.split("_").pop()}</span><br>`
     routeInfo.innerHTML += `<span style="font-size:1.2rem"><span class="route_name_number">${data.routeShortName}</span> <span>${data.tripHeadsign}</span></span>`;
     routeInfo.innerHTML += `<br>`;
     let routeScheduleDiv = `<button class="route-schedule" onclick="generateRouteSchedule('${data.routeShortName}', false)"><span style="font-size:0.8rem">Pogledaj VR </span> <i class="bi bi-calendar-event"></i></button>`;
-    /*routeScheduleDiv.data = {   
+    /*routeScheduleDiv.data = {
         trip_id: data.trip.trip_id,
         route_id: data.trip.route_id
     }*/
-    //console.log(routeScheduleDiv); 
+    //console.log(routeScheduleDiv);
     // add event listener
     if (data.realTime) {
-        // if the trip has live info, note it down  
+        // if the trip has live info, note it down
         routeInfo.innerHTML += `<i class="bi bi-broadcast blink" style="pointer-events: none;"></i><small> Podaci se ažuriraju u stvarnom vremenu.</small>`;
         if (data.vehicleId == 'XXX')
-            routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Lokacija vozila je aproksimirana.</span>`;
+            routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Bez podatka o vozilu.</span>`;
         else
             routeInfo.innerHTML += `<br/><span style="font-size: 0.7rem; pointer-events: none;"> Vozilo: ${await getVehicleData(data.vehicleId)}</span>`;
+        if (data.interpolated) {
+            routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> - pretpostavljena lokacija.</span>`;
+        } else {
+            // Find the marker and get the timestamp from the data
+            let marker_data = await vehicle_markers[data.tripId.split("_")[2]] ? vehicle_markers[data.tripId.split("_")[2]].data : null;
+            if (marker_data && marker_data.timestamp) {
+                // add the timestamp to the routeInfo
+                routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> - stvarna lokacija, ažurirana ${luxon.DateTime.fromISO(marker_data.timestamp).toFormat('HH:mm:ss')}</span>`;
+            } else {
+                routeInfo.innerHTML += `<span style="font-size: 0.7rem; pointer-events: none;"> - stvarna lokacija, nepoznato vrijeme ažuriranja.</span>`;
+            }
+        }
     } else {
         // if the trip has no live info, note it down
         routeInfo.innerHTML += `<i class="bi bi-clock" style="pointer-events: none;"></i><small> Podaci za polazak su statičnog tipa.</small>`;

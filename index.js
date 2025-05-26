@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS StopTimes(
 
 */
 
-// CORS 
+// CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     next();
@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 
 const CONFIG = {
     GTFS_ZIPPED: 'https://www.zet.hr/gtfs-scheduled/latest',
-    GTFS_RT_TRIP_UPDATES: 'https://zet.hr/gtfs',
+    GTFS_RT_TRIP_UPDATES: 'https://zet.hr/gtfs-rt-protobuf',
 }
 
 const createTables = () => {
@@ -328,7 +328,7 @@ const loadGtfs = async (url) => {
         stops = null;
         localStopsValues = null;
         localStopsStr = null;
-        
+
         console.log('Loading stop_times in buffered mode...');
 
         let stopTimesStr = 'INSERT INTO StopTimes (trip_id, arrival_time, arrival_time_int, departure_time, departure_time_int, stop_id, stop_sequence, pickup_type, drop_off_type, shape_dist_traveled) VALUES ';
@@ -393,7 +393,7 @@ const loadGtfs = async (url) => {
     } catch (e) {
         console.error(e);
     }
-    
+
 }
 
 const port = 8910;
@@ -819,11 +819,11 @@ app.get('/database/dump_as_file', (req, res) => {
     try {
         // Create a read stream for the database file
         const dbFileStream = fs.createReadStream('./zet.sqlite3');
-        
+
         // Set headers for the file download
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', 'attachment; filename=zet.sqlite3');
-        
+
         // Pipe the file stream directly to the response
         dbFileStream.pipe(res);
 
@@ -969,14 +969,18 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
             endTime += RT_UPDATE.delay;
 
             if (currentTime > startTime && currentTime < endTime) {
-                let [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
-                /*if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
+                let lat, lon, bearing, timestamp, interpolated = true
+                 if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
                     [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
+                    timestamp = luxon.DateTime.now().setZone('Europe/Zagreb').toISO();
                 } else {
                     lat = VP_MAP2[trip.trip_id].position.latitude;
                     lon = VP_MAP2[trip.trip_id].position.longitude;
                     bearing = 0;
-                }*/
+                    interpolated = false;
+                    // Epoch seconds
+                    timestamp = luxon.DateTime.fromMillis(VP_MAP2[trip.trip_id].timestamp * 1000).setZone('Europe/Zagreb').toISO();
+                }
 
                 geoJson.features.push({
                     type: "Feature",
@@ -995,7 +999,9 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                         delay: RT_UPDATE.delay,
                         bearing: bearing,
                         realTime: RT_UPDATE.realTime,
-                        vehicleId: VP_MAP[trip.trip_id] || RT_UPDATE.vehicle?.id || 'XXX'
+                        vehicleId: VP_MAP[trip.trip_id] || RT_UPDATE.vehicle?.id || 'XXX',
+                        interpolated: interpolated,
+                        timestamp: timestamp
                     }
                 });
             }
@@ -1004,6 +1010,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
         res.json(geoJson);
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
+        console.error(e);
         res.status(500).json({ message: 'Internal Server Error' });
     }
 });
@@ -1114,35 +1121,35 @@ async function addActiveTripsToDb() {
             'SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' +
             active_calendar_ids.map(() => '?').join(',') + ')'
         ).all(active_calendar_ids);
-    
+
         let sql_stmt = 'INSERT INTO TripArchive (trip_id, route_short_name, trip_headsign, block_id, start_time, date) VALUES ';
         let sql_values = [];
-    
+
         for (let trip of trips) {
             let tripStopTimes = STOP_TIMES_MAP[trip.trip_id];
             if (!tripStopTimes) continue;
-    
+
             sql_stmt += '(?, ?, ?, ?, ?, ?),';
             sql_values.push(trip.trip_id, trip.route_short_name, trip.trip_headsign, trip.block_id, tripStopTimes[0].departure_time, date);
-    
+
             // When the sql_values array reaches the batch size, execute the batch insert
             if (sql_values.length >= BATCH_SIZE * 6) {
                 sql_stmt = sql_stmt.slice(0, -1); // Remove trailing comma
-                sql_stmt += ' ON CONFLICT(trip_id, date) DO NOTHING';   
+                sql_stmt += ' ON CONFLICT(trip_id, date) DO NOTHING';
                 await sqlite3.prepare(sql_stmt).run(sql_values);
                 // Reset sql statement and values for the next batch
                 sql_stmt = 'INSERT INTO TripArchive (trip_id, route_short_name, trip_headsign, block_id, start_time, date) VALUES ';
                 sql_values = [];
             }
         }
-    
+
         // Insert any remaining records if they don't fill an entire batch
         if (sql_values.length > 0) {
             sql_stmt = sql_stmt.slice(0, -1); // Remove trailing comma
             sql_stmt += ' ON CONFLICT(trip_id, date) DO NOTHING';
             await sqlite3.prepare(sql_stmt).run(sql_values);
         }
-    
+
         console.log('Added ' + trips.length + ' active trips to the archive');
     } catch (e) {
         console.error(e);
@@ -1197,44 +1204,6 @@ async function getRtData() {
             for (let vehicle of vehicleData) {
                 vehicle_map[vehicle.trip.tripId] = vehicle.vehicle.id;
                 vehicle_map2[vehicle.trip.tripId] = vehicle;
-            }
-            // if there are less data entries than vehicleData entries by over 30% get the data again from Transitclock
-            if (data.length < vehicleData.length * 0.3) {
-                console.log('Data mismatch, getting data from Transitclock');
-                let rtData = await fetch('http://ijpp-transitclock:8080/api/v1/key/f78a2e9a/agency/0/command/gtfs-rt/tripUpdates?format=binary');
-                let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
-                let data2 = [];
-                for (let entity of feed.entity) {
-                    if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
-                        // since Transitclock doesn't directly report delays, we need to calculate them based on arrival.time or departure.time
-                        let delay = 0;
-                        // scheduled time is taken from the stoptime map for the trip
-                        let stopTimeMap = STOP_TIMES_MAP[entity.tripUpdate.trip.tripId];
-                        let tripDate = luxon.DateTime.fromFormat(entity.tripUpdate.trip.startDate, 'yyyyMMdd', { zone: 'Europe/Zagreb' }).toMillis() / 1000;
-                        if (stopTimeMap) {
-                            for (let stopTimeUpdate of entity.tripUpdate.stopTimeUpdate) {
-                                if ((stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay) || (stopTimeUpdate.departure && stopTimeUpdate.departure.delay))
-                                    continue;
-                                let stopTime = stopTimeMap.find(stopTime => stopTime.stop_sequence == stopTimeUpdate.stopSequence);
-                                if (stopTime) {
-                                    let scheduledTime = stopTime.departure_time_int + tripDate;
-                                    // fix scheduled time to UTC
-                                    scheduledTime = luxon.DateTime.fromSeconds(scheduledTime, { zone: 'Europe/Zagreb' }).toUTC().toSeconds();
-                                    let actualTime = (stopTimeUpdate.departure?.time?.low || stopTimeUpdate.arrival?.time?.low) - scheduledTime;
-                                    stopTimeUpdate.departure = stopTimeUpdate.departure || {};
-                                    stopTimeUpdate.departure.delay = actualTime;
-                                    stopTimeUpdate.arrival = stopTimeUpdate.arrival || {};
-                                    stopTimeUpdate.arrival.delay = actualTime;
-                                }
-                            }
-                        }
-                        data.push(entity.tripUpdate);
-                    }
-                }
-                // if there are more data2 entries than data entries, use data2
-                if (data2.length > data.length) {
-                    data = data2;
-                }
             }
             RT_DATA = data;
             VP_DATA = vehicleData;
