@@ -969,9 +969,10 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
             endTime += RT_UPDATE.delay;
 
             if (currentTime > startTime && currentTime < endTime) {
-                let lat, lon, bearing, timestamp, interpolated = true
+                let lat, lon, bearing, timestamp, interpolated;
                  if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
                     [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
+                    interpolated = true;
                     timestamp = luxon.DateTime.now().setZone('Europe/Zagreb').toISO();
                 } else {
                     lat = VP_MAP2[trip.trip_id].position.latitude;
