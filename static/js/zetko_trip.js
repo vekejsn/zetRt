@@ -62,7 +62,7 @@ async function generateTripDetails(tripId, initialRender = true) {
 
         content += `
       <div id="stop-${stop.stopId}" class="p-3 rounded-lg shadow-md transition cursor-pointer hover:scale-[1.01] ${passed ? 'bg-gray-100 dark:bg-base-300' : 'bg-white dark:bg-base-200'}"
-           onclick='generateArrivals(${JSON.stringify(stopObj)})'>
+           onclick='location.hash = "#stop/${stop.stopId}";'>
         <div class="flex justify-between items-center">
           <div>
             <p class="font-semibold ${passed ? 'line-through text-gray-500' : ''}">${stop.stopName}</p>
