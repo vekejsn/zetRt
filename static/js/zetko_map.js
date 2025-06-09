@@ -160,7 +160,7 @@ function setupVehicleLayers() {
             'text-justify': 'left',
             'symbol-z-order': 'source',
             'icon-allow-overlap': true,
-            'text-allow-overlap': false
+            'text-allow-overlap': true
         },
         paint: {
             'text-color': '#000',
