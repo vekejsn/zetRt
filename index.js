@@ -107,21 +107,21 @@ const CONFIG = {
     GTFS_RT_TRIP_UPDATES: 'https://zet.hr/gtfs-rt-protobuf',
 }
 
-const createTables = () => {
+const createTables = async () => {
     const createTables = fs.readFileSync('create_tables.sql', 'utf8');
     sqlite3.exec(createTables);
     // iterate over files in migrations folder and execute them
     const migrations = fs.readdirSync('migrations');
     // Sort migrations by first 4 digits (version number)
-    migrations.sort((a, b) => {
+    const sorted_migrations = await migrations.sort((a, b) => {
         const versionA = parseInt(a.split('_')[0]);
         const versionB = parseInt(b.split('_')[0]);
         return versionA - versionB;
     });
-    for (let migration of migrations) {
+    for (let migration of sorted_migrations) {
         try {
-            const sql = fs.readFileSync(`migrations/${migration}`, 'utf8');
-            sqlite3.exec(sql);
+            const sql = await fs.readFileSync(`migrations/${migration}`, 'utf8');
+            await sqlite3.exec(sql);
         } catch (e) {
             console.error(e);
         }
@@ -436,7 +436,7 @@ const loadGtfs = async (url) => {
                 } catch (e) {
                     console.error('Error updating stop_type values:', e);
                 }
-                
+
                 addActiveTripsToDb();
             }
         });
@@ -915,7 +915,7 @@ function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, R
         if (!vl_update) {
             return [0, 0, 0];
         }
-        return [vl_update.position.latitude, vl_update.position.longitude, vl_update.position.bearing || 0];
+        return [vl_update.position.latitude, vl_update.position.longitude, vl_update.position.bearing || calculateBearingFromGPS(vl_update.position, VP_MAP2_OLD[trip.trip_id]?.position)];
     }
     const { lat, lon, previousShapePoint, nextShapePoint } = interpolatePosition(tripShape, distance);
     const bearing = calculateBearing(previousShapePoint, nextShapePoint);
@@ -999,6 +999,39 @@ async function preloadData() {
     console.log('Preloaded data');
 }
 
+function calculateBearingFromGPS(currentPosition, previousPosition, previousBearing = 0) {
+    if (!currentPosition || !previousPosition) return 0;
+
+    const toRad = deg => deg * Math.PI / 180;
+    const R = 6371000; // Earth radius in meters
+
+    // Haversine distance between two points
+    function haversine(lat1, lon1, lat2, lon2) {
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    const dLat = toRad(currentPosition.latitude - previousPosition.latitude);
+    const dLon = toRad(currentPosition.longitude - previousPosition.longitude);
+    const lat1 = toRad(previousPosition.latitude);
+    const lat2 = toRad(currentPosition.latitude);
+
+    const distance = haversine(previousPosition.latitude, previousPosition.longitude, currentPosition.latitude, currentPosition.longitude);
+
+    if (distance < 5) return previousBearing;
+
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) -
+        Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    let bearing = Math.atan2(y, x) * (180 / Math.PI);
+    return (bearing + 360) % 360;
+}
+
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {
         let calendar = await getCalendarIds();
@@ -1028,7 +1061,12 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                 } else {
                     lat = VP_MAP2[trip.trip_id].position.latitude;
                     lon = VP_MAP2[trip.trip_id].position.longitude;
-                    bearing = 0;
+                    // Calculate bearing based on previous and next shape points
+                    bearing = VP_MAP2[trip.trip_id].position.bearing || calculateBearingFromGPS(
+                        VP_MAP2[trip.trip_id]?.position, VP_MAP2_OLD[trip.trip_id]?.position, VP_MAP2_OLD[trip.trip_id]?.position?.bearing
+                    );
+                    // Copy over the bearing so that we can use it for the next iteration
+                    VP_MAP2[trip.trip_id].position.bearing = bearing;
                     interpolated = false;
                     // Epoch seconds
                     timestamp = luxon.DateTime.fromMillis(VP_MAP2[trip.trip_id].timestamp * 1000).setZone('Europe/Zagreb').toISO();
@@ -1135,6 +1173,7 @@ let RT_DATA = [];
 let VP_DATA = [];
 let VP_MAP = {};
 let VP_MAP2 = {};
+let VP_MAP2_OLD = {};
 
 async function logVehicles() {
     // Log vehicles based on RT data
@@ -1260,6 +1299,7 @@ async function getRtData() {
             RT_DATA = data;
             VP_DATA = vehicleData;
             VP_MAP = vehicle_map;
+            VP_MAP2_OLD = VP_MAP2;
             VP_MAP2 = vehicle_map2;
             console.log('Updated RT data - ' + RT_DATA.length + ' updates, ' + VP_DATA.length + ' vehicles');
             logVehicles();
@@ -1287,7 +1327,7 @@ app.use(express.static('static'));
 
 app.listen(port, async () => {
     await createTables();
-    await loadGtfs();
+    // await loadGtfs();
     getRtData();
     w_preloadData();
     console.log(`Server running on port ${port}`);

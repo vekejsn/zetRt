@@ -92,16 +92,16 @@ async function generateArrivals(data, update = false, refreshTime = 10000) {
     const stopName = data.stop_name;
     const parentStation = data.parent_station;
 
-    const arrivals = await fetch(`https://zet.prometko.cyou/stops/${stopId}/trips?current=true`).then(res => res.json());
+    const arrivals = await fetch(`/stops/${stopId}/trips?current=true`).then(res => res.json());
 
     const isSavedStop = savedStops.has(stopId);
 
     let content = `
   <div class="flex justify-start items-start mb-2">
     <div class="flex items-center justify-center w-8 h-8">
-      <button 
-        class="text-xl ${isSavedStop ? 'text-yellow-400' : ''}" 
-        title="Spremi stajalište" 
+      <button
+        class="text-xl ${isSavedStop ? 'text-yellow-400' : ''}"
+        title="Spremi stajalište"
         onclick="
           const stopSet = savedStops;
           const el = this;

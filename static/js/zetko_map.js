@@ -50,32 +50,33 @@ async function loadStops() {
         clusterMaxZoom: 13,
         clusterRadius: 15
     });
+    map.addLayer({
+        id: 'stops',
+        type: 'symbol',
+        source: 'stops',
+        layout: {
+            "icon-size": 0.375,
+            "text-field": ["step", ["zoom"], "", 16, ["get", "name"]],
+            "text-offset": [0, 0.8],
+            "text-anchor": "top"
+        },
+        paint: {
+            "text-color": "#3070A1",
+            "text-halo-color": "#ffffff",
+            "text-halo-width": 1
+        }
+    });
 
     map.loadImage('images/tram.png', (error, image) => {
         if (error) throw error;
         if (!map.hasImage('bus-stop')) {
             map.addImage('bus-stop', image);
         }
-        map.addLayer({
-            id: 'stops',
-            type: 'symbol',
-            source: 'stops',
-            layout: {
-                "icon-image": "bus-stop",
-                "icon-size": 0.375,
-                "text-field": ["step", ["zoom"], "", 16, ["get", "name"]],
-                "text-offset": [0, 0.8],
-                "text-anchor": "top"
-            },
-            paint: {
-                "text-color": "#3070A1",
-                "text-halo-color": "#ffffff",
-                "text-halo-width": 1
-            }
-        });
+        // Alter the stops layer to use the bus-stop image
+        map.setLayoutProperty('stops', 'icon-image', 'bus-stop');
     });
 
-    const stopData = await fetch('https://zet.prometko.cyou/stops').then(res => res.json());
+    const stopData = await fetch('/stops').then(res => res.json());
     localStorage.setItem('zetkoStops', JSON.stringify(stopData));
     map.getSource('stops').setData(stopData);
 }
@@ -110,11 +111,11 @@ function setupVehicleLayers() {
         data: { type: 'FeatureCollection', features: [] }
     });
     map.addLayer({
-        id: 'trip-shapes',
+        id: 'trip-shape',
         type: 'line',
         source: 'trip-shape',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#1264AB', 'line-width': 6 }
+        paint: { 'line-color': '#1264AB', 'line-width': 6, 'line-opacity': 0.75 }
     });
 
     ['bg', 'fg'].forEach(suffix => {
@@ -139,6 +140,8 @@ function setupVehicleLayers() {
             }
         });
     });
+    // Force the stops layer to be below the trip shapes
+    map.moveLayer('stops', 'trip-shape');
 
     map.addLayer({
         id: 'vehicle-details',
@@ -157,7 +160,7 @@ function setupVehicleLayers() {
             'text-justify': 'left',
             'symbol-z-order': 'source',
             'icon-allow-overlap': true,
-            'text-allow-overlap': true
+            'text-allow-overlap': false
         },
         paint: {
             'text-color': '#000',
@@ -250,7 +253,7 @@ function darkenColor(hex, factor = 0.8) {
 }
 
 async function updateVehicles() {
-    const response = await fetch('https://zet.prometko.cyou/vehicles/locations')
+    const response = await fetch('/vehicles/locations')
         .then(res => res.json());
 
     response.features.forEach(f => {

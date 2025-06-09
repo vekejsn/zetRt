@@ -8,7 +8,7 @@ function getCurrentTimeInSeconds() {
 
 async function generateTripDetails(tripId, initialRender = true) {
     currentTripId = tripId;
-    const trip = await fetch(`https://zet.prometko.cyou/trips/${tripId}`).then(res => res.json());
+    const trip = await fetch(`/trips/${tripId}`).then(res => res.json());
 
     const currentTime = getCurrentTimeInSeconds();
     const isLate = (delay) => delay > 60;
@@ -17,15 +17,21 @@ async function generateTripDetails(tripId, initialRender = true) {
         return (min >= 1 ? `+${min}` : `${min}`) + " min";
     };
 
+    const vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
+
     let content = `
     <div class="flex justify-between items-start mb-2">
       <div>
         <h2 class="text-l font-semibold break-words">
           <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
             ${trip.routeShortName}
-          </span> → ${trip.tripHeadsign}
+          </span> → ${trip.tripHeadsign} ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i> ' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
         </h2>
-        <p class="text-sm text-gray-500">Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}</p>
+        <p class="text-sm text-gray-500">
+          Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}
+          <br/>
+          Prikazana je ${trip.realTime && !vehicleMarker?.properties?.interpolated ? `stvarna lokacija.` : 'predviđena lokacija.'}
+        </p>
       </div>
       <button class="delete" onclick="closeInfoPanel()"></button>
     </div>
@@ -80,14 +86,13 @@ async function generateTripDetails(tripId, initialRender = true) {
 
     if (initialRender) {
         // Find vehicle on map
-        const vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
         if (vehicleMarker) {
             console.log(`Flying to vehicle for trip ${tripId}`);
             const vehicleCoords = vehicleMarker.geometry.coordinates;
             map.flyTo({ center: vehicleCoords, zoom: 16, speed: 3 });
         }
         // Fetch and display vehicle track
-        const tripShape = await fetch(`https://zet.prometko.cyou/trips/${tripId}/shape`).then(res => res.json());
+        const tripShape = await fetch(`/trips/${tripId}/shape`).then(res => res.json());
         // This is a single feature GeoJSON
         if (tripShape && tripShape.geometry && tripShape.geometry.type === 'LineString') {
             map.getSource('trip-shape').setData({
