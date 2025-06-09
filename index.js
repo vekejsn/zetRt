@@ -112,6 +112,12 @@ const createTables = () => {
     sqlite3.exec(createTables);
     // iterate over files in migrations folder and execute them
     const migrations = fs.readdirSync('migrations');
+    // Sort migrations by first 4 digits (version number)
+    migrations.sort((a, b) => {
+        const versionA = parseInt(a.split('_')[0]);
+        const versionB = parseInt(b.split('_')[0]);
+        return versionA - versionB;
+    });
     for (let migration of migrations) {
         try {
             const sql = fs.readFileSync(`migrations/${migration}`, 'utf8');
@@ -386,6 +392,51 @@ const loadGtfs = async (url) => {
                     console.log('Inserted final batch of stop_times');
                 }
                 console.log('Completed processing stop_times.');
+                // Update stop_type in Stops table by cross-referencing route->trip->stoptime.
+                // 1 = tram stop, 2 = bus stop, 0 = unknown/mixed
+
+                try {
+                    // Ensure stop_type column exists
+                    const columns = await sqlite3.prepare("PRAGMA table_info(Stops)").all();
+                    const hasStopType = columns.some(col => col.name === 'stop_type');
+                    if (!hasStopType) {
+                        await sqlite3.prepare("ALTER TABLE Stops ADD COLUMN stop_type INTEGER DEFAULT 0").run();
+                        console.log('Added stop_type column to Stops table');
+                    }
+
+                    // Set all to 0 first
+                    await sqlite3.prepare("UPDATE Stops SET stop_type = 0").run();
+
+                    // Set tram stops (route_type = 0)
+                    await sqlite3.prepare(`
+                        UPDATE Stops SET stop_type = 1
+                        WHERE stop_id IN (
+                            SELECT DISTINCT StopTimes.stop_id
+                            FROM StopTimes
+                            JOIN Trips ON StopTimes.trip_id = Trips.trip_id
+                            JOIN Routes ON Trips.route_id = Routes.route_id
+                            WHERE Routes.route_type = 0
+                        )
+                    `).run();
+
+                    // Set bus stops (route_type = 3)
+                    await sqlite3.prepare(`
+                        UPDATE Stops SET stop_type = 2
+                        WHERE stop_id IN (
+                            SELECT DISTINCT StopTimes.stop_id
+                            FROM StopTimes
+                            JOIN Trips ON StopTimes.trip_id = Trips.trip_id
+                            JOIN Routes ON Trips.route_id = Routes.route_id
+                            WHERE Routes.route_type = 3
+                        )
+                        AND stop_type != 1
+                    `).run();
+
+                    console.log('Updated stop_type values in Stops table by cross-referencing routes');
+                } catch (e) {
+                    console.error('Error updating stop_type values:', e);
+                }
+                
                 addActiveTripsToDb();
             }
         });

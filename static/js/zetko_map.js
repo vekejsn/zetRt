@@ -1,0 +1,269 @@
+const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+    center: [15.9775658, 45.812892],
+    pitch: 0,
+    maxPitch: 60,
+    zoom: 13,
+    minZoom: 10,
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+// Add geolocate control to the map.
+map.addControl(
+    new maplibregl.GeolocateControl({
+        positionOptions: {
+            enableHighAccuracy: true
+        },
+        trackUserLocation: true
+    })
+);
+
+map.on('load', async () => {
+    hideTransitLayers();
+    await loadStops();
+    setupVehicleSources();
+    setupVehicleLayers();
+    registerMapEvents();
+    updateVehicles();
+    setInterval(updateVehicles, 5000);
+});
+
+function hideTransitLayers() {
+    map.getStyle().layers.forEach(layer => {
+        if (layer.id.includes('transit')) {
+            map.setLayoutProperty(layer.id, 'visibility', 'none');
+        }
+    });
+}
+
+async function loadStops() {
+    const stops = JSON.parse(localStorage.getItem('zetkoStops')) || {
+        type: 'FeatureCollection',
+        features: []
+    };
+
+    map.addSource('stops', {
+        type: 'geojson',
+        data: stops,
+        cluster: true,
+        clusterMaxZoom: 13,
+        clusterRadius: 15
+    });
+
+    map.loadImage('images/tram.png', (error, image) => {
+        if (error) throw error;
+        if (!map.hasImage('bus-stop')) {
+            map.addImage('bus-stop', image);
+        }
+        map.addLayer({
+            id: 'stops',
+            type: 'symbol',
+            source: 'stops',
+            layout: {
+                "icon-image": "bus-stop",
+                "icon-size": 0.375,
+                "text-field": ["step", ["zoom"], "", 16, ["get", "name"]],
+                "text-offset": [0, 0.8],
+                "text-anchor": "top"
+            },
+            paint: {
+                "text-color": "#3070A1",
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 1
+            }
+        });
+    });
+
+    const stopData = await fetch('https://zet.prometko.cyou/stops').then(res => res.json());
+    localStorage.setItem('zetkoStops', JSON.stringify(stopData));
+    map.getSource('stops').setData(stopData);
+}
+
+function setupVehicleSources() {
+    map.addSource('vehicles', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+        cluster: false
+    });
+
+    map.on('styleimagemissing', async e => {
+        const id = e.id;
+        if (!id.endsWith('-bg') && !id.endsWith('-fg')) return;
+
+        const [routeShortName, routeTypeStr, realTimeStr] = id.split('-');
+        const routeType = parseInt(routeTypeStr, 10);
+        const realTime = realTimeStr === 'true';
+
+        const color = !realTime ? '#535353' : routeType === 3 ? '#126400' : '#1264AB';
+        const imageData = id.endsWith('-bg')
+            ? await generateVehicleBgMarker(color)
+            : await generateVehicleFgMarker(color, 'white', routeShortName);
+
+        map.addImage(id, { width: id.endsWith('-bg') ? 64 : 42, height: id.endsWith('-bg') ? 64 : 42, data: imageData });
+    });
+}
+
+function setupVehicleLayers() {
+    map.addSource('trip-shape', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+    });
+    map.addLayer({
+        id: 'trip-shapes',
+        type: 'line',
+        source: 'trip-shape',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#1264AB', 'line-width': 6 }
+    });
+
+    ['bg', 'fg'].forEach(suffix => {
+        map.addLayer({
+            id: `vehicles-${suffix}`,
+            type: 'symbol',
+            source: 'vehicles',
+            layout: {
+                'icon-image': [
+                    'concat',
+                    ['get', 'routeShortName'], '-',
+                    ['get', 'routeType'], '-',
+                    ['to-string', ['get', 'realTime']],
+                    `-${suffix}`
+                ],
+                'icon-size': 0.65,
+                'icon-allow-overlap': true,
+                'text-allow-overlap': true,
+                'symbol-sort-key': ['*', ['get', 'id'], 2],
+                'symbol-z-order': suffix === 'bg' ? 'auto' : 'source',
+                ...(suffix === 'bg' && { 'icon-ignore-placement': true, 'icon-rotation-alignment': 'map', 'icon-rotate': ['get', 'bearing'] })
+            }
+        });
+    });
+
+    map.addLayer({
+        id: 'vehicle-details',
+        type: 'symbol',
+        source: 'vehicles',
+        minzoom: 15,
+        layout: {
+            'text-field': [
+                'concat',
+                ['literal', 'VR: '], ['get', 'blockId'],
+                ['literal', '\nGB: '], ['get', 'vehicleId']
+            ],
+            'text-size': 12,
+            'text-anchor': 'left',
+            'text-offset': [2, 0],
+            'text-justify': 'left',
+            'symbol-z-order': 'source',
+            'icon-allow-overlap': true,
+            'text-allow-overlap': true
+        },
+        paint: {
+            'text-color': '#000',
+            'text-halo-color': '#fff',
+            'text-halo-width': 12
+        }
+    });
+
+    map.moveLayer('stops', 'vehicles-bg');
+}
+
+function registerMapEvents() {
+    ['stops', 'vehicles-fg', 'vehicles-bg'].forEach(layer => {
+        map.on('click', layer, onFeatureClick);
+        map.on('mouseenter', layer, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', layer, () => map.getCanvas().style.cursor = '');
+    });
+}
+
+function onFeatureClick(e) {
+    const feature = e.features[0];
+    console.log('Feature clicked:', feature);
+    if (!feature.properties) return;
+    switch (feature.source) {
+        case 'stops':
+            location.hash = `stop/${feature.properties.id}`;
+            break;
+        case 'vehicles':
+            location.hash = `trip/${feature.properties.tripId}`;
+            break;
+        default:
+            console.warn('Unknown feature source:', feature.source);
+    }
+}
+
+function generateVehicleBgMarker(color) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+
+    const center = canvas.width / 2;
+    const arrowHeight = 20;
+    ctx.fillStyle = darkenColor(color, 0.8);
+    ctx.beginPath();
+    ctx.moveTo(center, 0);
+    ctx.lineTo(center - 18, arrowHeight);
+    ctx.lineTo(center + 18, arrowHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+}
+
+async function generateVehicleFgMarker(bg, fg, text) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 42;
+    const ctx = canvas.getContext('2d');
+    const center = 21;
+
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(center, center, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = darkenColor(bg, 0.8);
+    ctx.stroke();
+
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    await Promise.all([
+        document.fonts.load('bold 24px "Noto Sans"'),
+        document.fonts.load('bold 20px "Noto Sans"'),
+        document.fonts.load('bold 18px "Noto Sans"')
+    ]);
+
+    ctx.font = text.length > 3 ? 'bold 18px Noto Sans, sans-serif' : text.length > 2 ? 'bold 20px Noto Sans, sans-serif' : 'bold 24px Noto Sans, sans-serif';
+    ctx.fillText(text, center, center);
+
+    return ctx.getImageData(0, 0, 42, 42).data;
+}
+
+function darkenColor(hex, factor = 0.8) {
+    const r = Math.floor(parseInt(hex.slice(1, 3), 16) * factor);
+    const g = Math.floor(parseInt(hex.slice(3, 5), 16) * factor);
+    const b = Math.floor(parseInt(hex.slice(5, 7), 16) * factor);
+    return `rgb(${r},${g},${b})`;
+}
+
+async function updateVehicles() {
+    const response = await fetch('https://zet.prometko.cyou/vehicles/locations')
+        .then(res => res.json());
+
+    response.features.forEach(f => {
+        f.properties.blockId = f.properties.tripId.split('_')[2];
+    });
+
+    map.getSource('vehicles').setData({
+        type: 'FeatureCollection',
+        features: response.features
+    });
+}
+
+function formatTime(unixTimestamp) {
+    const date = new Date(unixTimestamp * 1000);
+    return date.toISOString().substr(11, 5);  // HH:MM
+}
