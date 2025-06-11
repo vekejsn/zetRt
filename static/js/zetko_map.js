@@ -69,11 +69,23 @@ async function loadStops() {
 
     map.loadImage('images/tram.png', (error, image) => {
         if (error) throw error;
-        if (!map.hasImage('bus-stop')) {
-            map.addImage('bus-stop', image);
+        if (!map.hasImage('stop-1')) {
+            map.addImage('stop-1', image);
         }
-        // Alter the stops layer to use the bus-stop image
-        map.setLayoutProperty('stops', 'icon-image', 'bus-stop');
+        // Load the stop icon for bus
+        map.loadImage('images/bus.png', (error, busImage) => {
+            if (error) throw error;
+            if (!map.hasImage('stop-2')) {
+                map.addImage('stop-2', busImage);
+            }
+            // read from stopType to determine which icon to use
+            map.setLayoutProperty('stops', 'icon-image', [
+                'case',
+                ['==', ['get', 'stopType'], "1"], 'stop-1', // Tram
+                ['==', ['get', 'stopType'], "2"], 'stop-2', // Bus
+                'stop-2' // Default to tram icon
+            ]);
+        });
     });
 
     const stopData = await fetch('/stops').then(res => res.json());

@@ -19,83 +19,6 @@ let cache = apicache.middleware;
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/*
-CREATE TABLE IF NOT EXISTS Calendar(
-    service_id TEXT,
-    monday INTEGER,
-    tuesday INTEGER,
-    wednesday INTEGER,
-    thursday INTEGER,
-    friday INTEGER,
-    saturday INTEGER,
-    sunday INTEGER,
-    start_date TEXT,
-    end_date TEXT
-);
-
-CREATE TABLE IF NOT EXISTS CalendarDates(
-    service_id TEXT,
-    date TEXT,
-    exception_type INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS Routes(
-    route_id TEXT,
-    route_short_name TEXT,
-    route_long_name TEXT,
-    route_type INTEGER,
-    route_color TEXT,
-    route_text_color TEXT
-);
-
-CREATE TABLE IF NOT EXISTS Shapes(
-    shape_id TEXT,
-    shape_pt_lat REAL,
-    shape_pt_lon REAL,
-    shape_pt_sequence INTEGER,
-    shape_dist_traveled REAL
-);
-
-CREATE TABLE IF NOT EXISTS Trips(
-    route_id TEXT,
-    service_id TEXT,
-    trip_id TEXT,
-    trip_headsign TEXT,
-    direction_id INTEGER,
-    block_id TEXT,
-    shape_id TEXT
-);
-
-CREATE TABLE IF NOT EXISTS Stops(
-    stop_id TEXT,
-    stop_code TEXT,
-    stop_name TEXT,
-    stop_desc TEXT,
-    stop_lat REAL,
-    stop_lon REAL,
-    zone_id TEXT,
-    stop_url TEXT,
-    location_type INTEGER,
-    parent_station TEXT
-);
-
-CREATE TABLE IF NOT EXISTS StopTimes(
-    trip_id TEXT,
-    arrival_time TEXT,
-    arrival_time_int INTEGER,
-    departure_time TEXT,
-    departure_time_int INTEGER,
-    stop_id TEXT,
-    stop_sequence INTEGER,
-    pickup_type INTEGER,
-    drop_off_type INTEGER,
-    shape_dist_traveled REAL,
-    closest_shape_pt_sequence INTEGER
-);
-
-
-*/
-
 // CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -383,18 +306,18 @@ const loadGtfs = async (url) => {
             complete: async () => {
                 if (stopTimesValues.length > 0) {
                     try {
-                        if (stopTimesStr[stopTimesStr.length - 1] == ',')
+                        if (stopTimesStr.endsWith(',')) {
                             stopTimesStr = stopTimesStr.slice(0, -1);
+                        }
                         await sqlite3.prepare(stopTimesStr).run(stopTimesValues);
                     } catch (e) {
-                        console.log(e);
+                        console.error(e);
                     }
                     console.log('Inserted final batch of stop_times');
                 }
                 console.log('Completed processing stop_times.');
-                // Update stop_type in Stops table by cross-referencing route->trip->stoptime.
-                // 1 = tram stop, 2 = bus stop, 0 = unknown/mixed
 
+                // Update stop_type in Stops table by cross-referencing route->trip->stop_times
                 try {
                     // Ensure stop_type column exists
                     const columns = await sqlite3.prepare("PRAGMA table_info(Stops)").all();
@@ -404,41 +327,42 @@ const loadGtfs = async (url) => {
                         console.log('Added stop_type column to Stops table');
                     }
 
-                    // Set all to 0 first
+                    // Reset all stop types to unknown (0)
                     await sqlite3.prepare("UPDATE Stops SET stop_type = 0").run();
 
                     // Set tram stops (route_type = 0)
                     await sqlite3.prepare(`
-                        UPDATE Stops SET stop_type = 1
-                        WHERE stop_id IN (
-                            SELECT DISTINCT StopTimes.stop_id
-                            FROM StopTimes
-                            JOIN Trips ON StopTimes.trip_id = Trips.trip_id
-                            JOIN Routes ON Trips.route_id = Routes.route_id
-                            WHERE Routes.route_type = 0
-                        )
-                    `).run();
+            UPDATE Stops SET stop_type = 1
+            WHERE stop_id IN (
+                SELECT DISTINCT StopTimes.stop_id
+                FROM StopTimes
+                JOIN Trips ON StopTimes.trip_id = Trips.trip_id
+                JOIN Routes ON Trips.route_id = Routes.route_id
+                WHERE Routes.route_type = 0
+            )
+        `).run();
 
-                    // Set bus stops (route_type = 3)
+                    // Set bus stops (route_type = 3), but only if not already set as tram
                     await sqlite3.prepare(`
-                        UPDATE Stops SET stop_type = 2
-                        WHERE stop_id IN (
-                            SELECT DISTINCT StopTimes.stop_id
-                            FROM StopTimes
-                            JOIN Trips ON StopTimes.trip_id = Trips.trip_id
-                            JOIN Routes ON Trips.route_id = Routes.route_id
-                            WHERE Routes.route_type = 3
-                        )
-                        AND stop_type != 1
-                    `).run();
+            UPDATE Stops SET stop_type = 2
+            WHERE stop_id IN (
+                SELECT DISTINCT StopTimes.stop_id
+                FROM StopTimes
+                JOIN Trips ON StopTimes.trip_id = Trips.trip_id
+                JOIN Routes ON Trips.route_id = Routes.route_id
+                WHERE Routes.route_type = 3
+            )
+            AND stop_type != 1
+        `).run();
 
-                    console.log('Updated stop_type values in Stops table by cross-referencing routes');
+                    console.log('Updated stop_type values in Stops table');
                 } catch (e) {
                     console.error('Error updating stop_type values:', e);
                 }
 
                 addActiveTripsToDb();
             }
+
         });
 
     } catch (e) {
@@ -466,7 +390,8 @@ app.get('/stops', cache('1 day'), (req, res) => {
                 name: stop.stop_name,
                 code: stop.stop_code,
                 id: stop.stop_id,
-                parentId: stop.parent_station
+                parentId: stop.parent_station,
+                stopType: stop.stop_type || 2, // Default to 0 if stop_type is not set
             }
         });
     }
@@ -1054,7 +979,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
 
             if (currentTime > startTime && currentTime < endTime) {
                 let lat, lon, bearing, timestamp, interpolated;
-                 if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
+                if (!VP_MAP2[trip.trip_id] || !VP_MAP2[trip.trip_id].position || !VP_MAP2[trip.trip_id].position.latitude || !VP_MAP2[trip.trip_id].position.longitude) {
                     [lat, lon, bearing] = calculateCurrentPosition(trip, tripStopTimes, SHAPES_MAP, currentTime, RT_UPDATE);
                     interpolated = true;
                     timestamp = luxon.DateTime.now().setZone('Europe/Zagreb').toISO();
@@ -1186,7 +1111,7 @@ async function logVehicles() {
         let vehicle = VP_MAP2[rt.trip.tripId] || rt;
         let vehicle_id = '?';
         let local_date = rt.trip.startDate || date;
-        if (vehicle)  {
+        if (vehicle) {
             vehicle_id = vehicle?.vehicle?.id || '?';
             local_date = vehicle?.trip?.startDate || local_date;
         }
@@ -1278,7 +1203,7 @@ app.get('/historic/trips/:route_short_name/:date', cache('1 minute'), async (req
 async function getRtData() {
     while (true) {
         try {
-            let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES, { signal: AbortSignal.timeout(10000)});
+            let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES, { signal: AbortSignal.timeout(10000) });
             let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
             let data = [];
             let vehicleData = [];
@@ -1327,7 +1252,7 @@ app.use(express.static('static'));
 
 app.listen(port, async () => {
     await createTables();
-    // await loadGtfs();
+    //await loadGtfs();
     getRtData();
     w_preloadData();
     console.log(`Server running on port ${port}`);
