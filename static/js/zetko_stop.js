@@ -1,30 +1,30 @@
-const expandedRouteGroups = new Set();
+let expandedRouteGroups = new Set();
 const savedStops = new Set(JSON.parse(localStorage.getItem('savedStops') || '[]'));
 
 function saveSavedStops() {
-    localStorage.setItem('savedStops', JSON.stringify([...savedStops]));
+  localStorage.setItem('savedStops', JSON.stringify([...savedStops]));
 }
 
 
 function groupArrivalsByRoute(arrivals) {
-    const groups = {};
-    for (const a of arrivals) {
-        const key = a.routeId + a.tripHeadsign;
-        groups[key] = groups[key] || [];
-        groups[key].push(a);
-    }
-    return groups;
+  const groups = {};
+  for (const a of arrivals) {
+    const key = a.routeId + a.tripHeadsign;
+    groups[key] = groups[key] || [];
+    groups[key].push(a);
+  }
+  return groups;
 }
 
 function renderArrivalCard(arr, onClick) {
-    const time = formatTime(arr.departureTime);
-    const original = formatTime(arr.departureTime - (arr.departureDelay || 0));
-    const late = original !== time;
-    const realTimeIcon = arr.realTime
-        ? `<i class="bi bi-broadcast blinker mr-1" title="Real-time"></i>`
-        : `<i class="bi bi-clock mr-1" title="Scheduled"></i>`;
+  const time = formatTime(arr.departureTime);
+  const original = formatTime(arr.departureTime - (arr.departureDelay || 0));
+  const late = original !== time;
+  const realTimeIcon = arr.realTime
+    ? `<i class="bi bi-broadcast blinker mr-1" title="Real-time"></i>`
+    : `<i class="bi bi-clock mr-1" title="Scheduled"></i>`;
 
-    return `
+  return `
     <div onclick="${onClick}"
          class="cursor-pointer transition transform hover:scale-105 bg-white dark:bg-base-200 rounded-lg shadow-md p-3 w-full sm:w-28 md:w-32 text-center">
       <div class="flex items-center justify-center mb-1 gap-1">
@@ -37,11 +37,11 @@ function renderArrivalCard(arr, onClick) {
 }
 
 function renderRouteGroup(group) {
-    const sample = group[0];
-    const groupId = `group-${sample.routeId}-${sample.tripHeadsign.replace(/\s+/g, '-')}`.toLowerCase();
-    const isExpanded = expandedRouteGroups.has(groupId);
+  const sample = group[0];
+  const groupId = `group-${sample.routeId}-${sample.tripHeadsign.replace(/\s+/g, '-')}`.toLowerCase();
+  const isExpanded = expandedRouteGroups.has(groupId);
 
-    let html = `
+  let html = `
     <div class="mb-6" id="${groupId}-wrapper">
       <div class="flex items-center gap-2 mb-2">
         <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">${sample.routeShortName}</span>
@@ -49,21 +49,21 @@ function renderRouteGroup(group) {
       </div>
       <div class="grid grid-cols-2 gap-3" id="${groupId}">`;
 
-    group.slice(0, 4).forEach(arr => {
-        html += renderArrivalCard(arr, `location.hash = 'trip/${arr.tripId}'`);
-    });
+  group.slice(0, 4).forEach(arr => {
+    html += renderArrivalCard(arr, `location.hash = 'trip/${arr.tripId}'`);
+  });
 
-    html += `</div>`;
+  html += `</div>`;
 
-    if (group.length > 4) {
-        html += `
+  if (group.length > 4) {
+    html += `
       <div id="${groupId}-extra" class="grid grid-cols-2 gap-3 mt-3 ${isExpanded ? '' : 'hidden'}">`;
 
-        group.slice(4).forEach(arr => {
-            html += renderArrivalCard(arr, `location.hash = 'trip/${arr.tripId}'`);
-        });
+    group.slice(4).forEach(arr => {
+      html += renderArrivalCard(arr, `location.hash = 'trip/${arr.tripId}'`);
+    });
 
-        html += `</div>
+    html += `</div>
       <div class="mt-2">
         <button class="btn btn-sm btn-outline w-full" onclick="
           const extra = document.getElementById('${groupId}-extra');
@@ -81,22 +81,25 @@ function renderRouteGroup(group) {
           ${isExpanded ? 'Sakrij' : 'Prikaži sve'}
         </button>
       </div>`;
-    }
+  }
 
-    html += `</div>`;
-    return html;
+  html += `</div>`;
+  return html;
 }
 
 async function generateArrivals(data, update = false, refreshTime = 10000) {
-    const stopId = data.stop_id;
-    const stopName = data.stop_name;
-    const parentStation = data.parent_station;
+  if (!update) {
+    expandedRouteGroups = new Set();
+  }
+  const stopId = data.stop_id;
+  const stopName = data.stop_name;
+  const parentStation = data.parent_station;
 
-    const arrivals = await fetch(`/stops/${stopId}/trips?current=true`).then(res => res.json());
+  const arrivals = await fetch(`/stops/${stopId}/trips?current=true`).then(res => res.json());
 
-    const isSavedStop = savedStops.has(stopId);
+  const isSavedStop = savedStops.has(stopId);
 
-    let content = `
+  let content = `
   <div class="flex justify-start items-start mb-2">
     <div class="flex items-center justify-center w-8 h-8">
       <button
@@ -128,49 +131,48 @@ async function generateArrivals(data, update = false, refreshTime = 10000) {
   <hr class="mb-4" />
 `;
 
-
-    const siblingStops = map.getSource('stops')._data.features.filter(s => s.properties.parentId === parentStation);
-    if (siblingStops.length > 1) {
-        content += `
+  const siblingStops = map.getSource('stops')._data.features.filter(s => s.properties.parentId === parentStation);
+  if (siblingStops.length > 1) {
+    content += `
       <div class="mb-4">
         <select class="select select-bordered w-full" onchange="location.hash = 'stop/' + this.value">`;
-        for (const s of siblingStops) {
-            content += `<option value="${s.properties.id}" ${s.properties.id === stopId ? 'selected' : ''}>
+    for (const s of siblingStops) {
+      content += `<option value="${s.properties.id}" ${s.properties.id === stopId ? 'selected' : ''}>
         ${s.properties.name} (${s.properties.id})
       </option>`;
-        }
-        content += `</select></div>`;
     }
+    content += `</select></div>`;
+  }
 
-    if (!arrivals.length) {
-        content += `<p class="text-gray-500">Za danas više nema polazaka.</p>`;
-        openInfoPanel(content);
-        setTimeout(() => {
-            if (location.hash === `#stop/${stopId}`) generateArrivals(data, false);
-        }, refreshTime);
-        return;
-    }
-
-    const routeGroups = groupArrivalsByRoute(arrivals);
-    for (const groupKey in routeGroups) {
-        content += renderRouteGroup(routeGroups[groupKey]);
-    }
-
+  if (!arrivals.length) {
+    content += `<p class="text-gray-500">Za danas više nema polazaka.</p>`;
     openInfoPanel(content);
-
-    // Find stop on map
-    const stopFeature = map.getSource('stops')?._data?.features?.find(f => f.properties.id === stopId);
-    if (stopFeature) {
-        const coords = stopFeature.geometry.coordinates;
-        map.flyTo({
-            center: coords,
-            zoom: 16,
-            speed: 3,
-            essential: true
-        });
-    }
-
     setTimeout(() => {
-        if (location.hash === `#stop/${stopId}`) generateArrivals(data, false);
+      if (location.hash === `#stop/${stopId}`) generateArrivals(data, true);
     }, refreshTime);
+    return;
+  }
+
+  const routeGroups = groupArrivalsByRoute(arrivals);
+  for (const groupKey in routeGroups) {
+    content += renderRouteGroup(routeGroups[groupKey]);
+  }
+
+  openInfoPanel(content);
+
+  // Find stop on map
+  const stopFeature = map.getSource('stops')?._data?.features?.find(f => f.properties.id === stopId);
+  if (stopFeature && !update) {
+    const coords = stopFeature.geometry.coordinates;
+    map.flyTo({
+      center: coords,
+      zoom: 16,
+      speed: 3,
+      essential: true
+    });
+  }
+
+  setTimeout(() => {
+    if (location.hash === `#stop/${stopId}`) generateArrivals(data, true);
+  }, refreshTime);
 }

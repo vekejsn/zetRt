@@ -924,14 +924,13 @@ async function preloadData() {
     console.log('Preloaded data');
 }
 
-function calculateBearingFromGPS(currentPosition, previousPosition, previousBearing = 0) {
-    if (!currentPosition || !previousPosition) return 0;
+function calculateBearingFromGPS(currentPosition, previousPosition, trip, previousBearing = 0) {
+    if (!currentPosition) return previousBearing;
 
-    const toRad = deg => deg * Math.PI / 180;
-    const R = 6371000; // Earth radius in meters
-
-    // Haversine distance between two points
+    // Helper: Haversine distance between two points
     function haversine(lat1, lon1, lat2, lon2) {
+        const toRad = deg => deg * Math.PI / 180;
+        const R = 6371000;
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat / 2) ** 2 +
@@ -941,19 +940,45 @@ function calculateBearingFromGPS(currentPosition, previousPosition, previousBear
         return R * c;
     }
 
+    // If no previous position, try to estimate using shape points
+    if (!previousPosition || (currentPosition.latitude === previousPosition.latitude && currentPosition.longitude === previousPosition.longitude)) {
+        const shape = SHAPES_MAP[trip.shape_id];
+        if (!shape) return previousBearing;
+        let closestIdx = 0, minDist = Infinity;
+        for (let i = 0; i < shape.length; i++) {
+            const dist = haversine(currentPosition.latitude, currentPosition.longitude, shape[i].shape_pt_lat, shape[i].shape_pt_lon);
+            if (dist < minDist) {
+                minDist = dist;
+                closestIdx = i;
+            }
+        }
+        if (closestIdx >= shape.length - 1) return previousBearing;
+        const prev = shape[closestIdx];
+        const next = shape[closestIdx + 1];
+        const dLon = (next.shape_pt_lon - prev.shape_pt_lon) * Math.PI / 180;
+        const lat1 = prev.shape_pt_lat * Math.PI / 180;
+        const lat2 = next.shape_pt_lat * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) -
+            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        let bearing = Math.atan2(y, x) * 180 / Math.PI;
+        return (bearing + 360) % 360;
+    }
+
+    // Calculate bearing from previous GPS position
+    const toRad = deg => deg * Math.PI / 180;
     const dLat = toRad(currentPosition.latitude - previousPosition.latitude);
     const dLon = toRad(currentPosition.longitude - previousPosition.longitude);
     const lat1 = toRad(previousPosition.latitude);
     const lat2 = toRad(currentPosition.latitude);
 
     const distance = haversine(previousPosition.latitude, previousPosition.longitude, currentPosition.latitude, currentPosition.longitude);
-
-    if (distance < 5) return previousBearing;
+    if (distance < 10) return previousBearing;
 
     const y = Math.sin(dLon) * Math.cos(lat2);
     const x = Math.cos(lat1) * Math.sin(lat2) -
         Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    let bearing = Math.atan2(y, x) * (180 / Math.PI);
+    let bearing = Math.atan2(y, x) * 180 / Math.PI;
     return (bearing + 360) % 360;
 }
 
@@ -988,7 +1013,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                     lon = VP_MAP2[trip.trip_id].position.longitude;
                     // Calculate bearing based on previous and next shape points
                     bearing = VP_MAP2[trip.trip_id].position.bearing || calculateBearingFromGPS(
-                        VP_MAP2[trip.trip_id]?.position, VP_MAP2_OLD[trip.trip_id]?.position, VP_MAP2_OLD[trip.trip_id]?.position?.bearing
+                        VP_MAP2[trip.trip_id]?.position, VP_MAP2_OLD[trip.trip_id]?.position, trip, VP_MAP2_OLD[trip.trip_id]?.position?.bearing
                     );
                     // Copy over the bearing so that we can use it for the next iteration
                     VP_MAP2[trip.trip_id].position.bearing = bearing;
