@@ -1,3 +1,5 @@
+let routes = [];
+
 function openInfoPanel(contentHtml) {
     const panel = document.getElementById('info-panel');
     const content = document.getElementById('info-panel-content');
@@ -20,6 +22,10 @@ async function handleHashRoute() {
 
     if (!type || !id) return;
 
+    if (type === 'stop' && !stopsLoaded) {
+        await loadStops();  // Ensure stops are loaded
+    }
+
     switch (type) {
         case 'stop':
             await handleStopRoute(id);
@@ -28,7 +34,7 @@ async function handleHashRoute() {
             generateTripDetails(id, true);
             break;
         case 'route':
-            generateRouteSchedule(id, false);
+            generateRouteArrivals(id);
             break;
     }
 }
@@ -84,6 +90,6 @@ function clearPanel() {
 
 
 // Trigger on document load
-window.addEventListener('load', () => {
-    handleHashRoute();
+window.addEventListener('load', async () => {
+    await handleHashRoute();
 });

@@ -361,6 +361,92 @@ const loadGtfs = async (url) => {
                 }
 
                 addActiveTripsToDb();
+                                try {
+                    // Find all trips with missing shapes (shape_id is empty or not present in Shapes)
+                    const tripsWithoutShapes = await sqlite3.prepare(`
+                        SELECT t.trip_id, t.shape_id
+                        FROM Trips t
+                        LEFT JOIN Shapes s ON t.shape_id = s.shape_id
+                        WHERE s.shape_id IS NULL OR t.shape_id IS NULL OR t.shape_id = ''
+                    `).all();
+
+                    if (tripsWithoutShapes.length > 0) {
+                        // Group by md5 hash of stop_ids in sequence
+                        const shapeGroups = {};
+                        for (const trip of tripsWithoutShapes) {
+                            // Get stop_ids in order for this trip
+                            const stopIds = await sqlite3.prepare(`
+                                SELECT stop_id FROM StopTimes WHERE trip_id = ? ORDER BY stop_sequence ASC
+                            `).all(trip.trip_id);
+                            const stopIdSeq = stopIds.map(row => row.stop_id).join(',');
+                            const hash = crypto.createHash('md5').update(stopIdSeq).digest('hex');
+                            if (!shapeGroups[hash]) shapeGroups[hash] = [];
+                            shapeGroups[hash].push(trip.trip_id);
+                        }
+
+                        for (const shapeKey of Object.keys(shapeGroups)) {
+                            // For each group, get the stop sequence for one trip
+                            const tripId = shapeGroups[shapeKey][0];
+                            const stopTimes = await sqlite3.prepare(`
+                                SELECT st.stop_id, s.stop_lat, s.stop_lon, st.stop_sequence
+                                FROM StopTimes st
+                                JOIN Stops s ON st.stop_id = s.stop_id
+                                WHERE st.trip_id = ?
+                                ORDER BY st.stop_sequence ASC
+                            `).all(tripId);
+
+                            if (stopTimes.length < 2) continue;
+
+                            // Build coordinates string for OSRM
+                            const coords = stopTimes.map(st => `${st.stop_lon},${st.stop_lat}`).join(';');
+                            const osrmUrl = `https://osrm.brdo.pirnet.si/hrroute/v1/driving/${coords}?overview=full&geometries=geojson`;
+
+                            try {
+                                const osrmRes = await fetch(osrmUrl);
+                                if (!osrmRes.ok) {
+                                    console.error(`OSRM fetch failed for shape ${shapeKey}: ${osrmRes.statusText}`);
+                                    continue;
+                                }
+                                const osrmJson = await osrmRes.json();
+                                if (!osrmJson.routes || !osrmJson.routes[0] || !osrmJson.routes[0].geometry) {
+                                    console.error(`No geometry from OSRM for shape ${shapeKey}`);
+                                    continue;
+                                }
+                                const geometry = osrmJson.routes[0].geometry.coordinates;
+
+                                // Insert the shape into Shapes table
+                                let shapeInsertStr = 'INSERT INTO Shapes (shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence, shape_dist_traveled) VALUES ';
+                                let shapeInsertValues = [];
+                                let dist = 0;
+                                for (let i = 0; i < geometry.length; i++) {
+                                    const [lon, lat] = geometry[i];
+                                    if (i > 0) {
+                                        // Calculate distance from previous point (approximate)
+                                        const prev = geometry[i - 1];
+                                        const dLat = lat - prev[1];
+                                        const dLon = lon - prev[0];
+                                        dist += Math.sqrt(dLat * dLat + dLon * dLon) * 100000; // crude meters
+                                    }
+                                    shapeInsertStr += '(?, ?, ?, ?, ?),';
+                                    shapeInsertValues.push(shapeKey, lat, lon, i + 1, dist);
+                                }
+                                shapeInsertStr = shapeInsertStr.slice(0, -1);
+                                await sqlite3.prepare(shapeInsertStr).run(shapeInsertValues);
+
+                                // Update all trips in this group to use this shape_id
+                                await sqlite3.prepare(
+                                    `UPDATE Trips SET shape_id = ? WHERE trip_id IN (${shapeGroups[shapeKey].map(() => '?').join(',')})`
+                                ).run(shapeKey, ...shapeGroups[shapeKey]);
+
+                                console.log(`Fetched and inserted OSRM shape for ${shapeKey} (trips: ${shapeGroups[shapeKey].join(', ')})`);
+                            } catch (err) {
+                                console.error(`Error fetching/inserting OSRM shape for ${shapeKey}:`, err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error checking/fetching missing shapes:', err);
+                }
             }
 
         });
@@ -555,8 +641,15 @@ app.get('/trips/:id/shape', cache('1 day'), async (req, res) => {
                 coordinates: []
             }
         };
-        for (let point of shape) {
-            geoJson.geometry.coordinates.push([point.shape_pt_lon, point.shape_pt_lat]);
+        if (shape.length > 0) {
+
+            for (let point of shape) {
+                geoJson.geometry.coordinates.push([point.shape_pt_lon, point.shape_pt_lat]);
+            }
+        } else {
+            // Fetch the locations of the stops for this trip
+            let stopTimes = await sqlite3.prepare('SELECT s.stop_lat, s.stop_lon FROM StopTimes st JOIN Stops s ON st.stop_id = s.stop_id WHERE st.trip_id = ? ORDER BY st.stop_sequence').all(tripId);
+            geoJson.geometry.coordinates = stopTimes.map(stop => [stop.stop_lon, stop.stop_lat]);
         }
         res.json(geoJson);
     } catch (e) {
@@ -566,7 +659,7 @@ app.get('/trips/:id/shape', cache('1 day'), async (req, res) => {
 });
 
 
-app.get('/routes', cache('1 day'), async (req, res) => {
+app.get('/routes', cache('30 minutes'), async (req, res) => {
     try {
         let routes = await sqlite3.prepare('SELECT * FROM Routes').all();
         let routesFormatted = [];
@@ -925,12 +1018,13 @@ async function preloadData() {
 }
 
 function calculateBearingFromGPS(currentPosition, previousPosition, trip, previousBearing = 0) {
-    if (!currentPosition) return previousBearing;
+    if (!currentPosition?.latitude || !currentPosition?.longitude) return previousBearing;
 
-    // Helper: Haversine distance between two points
+    const toRad = deg => deg * Math.PI / 180;
+    const toDeg = rad => rad * 180 / Math.PI;
+
     function haversine(lat1, lon1, lat2, lon2) {
-        const toRad = deg => deg * Math.PI / 180;
-        const R = 6371000;
+        const R = 6371000; // Earth radius in meters
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat / 2) ** 2 +
@@ -940,47 +1034,69 @@ function calculateBearingFromGPS(currentPosition, previousPosition, trip, previo
         return R * c;
     }
 
-    // If no previous position, try to estimate using shape points
-    if (!previousPosition || (currentPosition.latitude === previousPosition.latitude && currentPosition.longitude === previousPosition.longitude)) {
-        const shape = SHAPES_MAP[trip.shape_id];
-        if (!shape) return previousBearing;
+    function bearingBetween(lat1, lon1, lat2, lon2) {
+        const dLon = toRad(lon2 - lon1);
+        const lat1Rad = toRad(lat1);
+        const lat2Rad = toRad(lat2);
+        const y = Math.sin(dLon) * Math.cos(lat2Rad);
+        const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+            Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    const shape = SHAPES_MAP[trip.shape_id];
+    let shapeBearing = previousBearing;
+
+    if (shape?.length >= 2) {
+        // Find nearest shape segment
         let closestIdx = 0, minDist = Infinity;
         for (let i = 0; i < shape.length; i++) {
-            const dist = haversine(currentPosition.latitude, currentPosition.longitude, shape[i].shape_pt_lat, shape[i].shape_pt_lon);
+            const dist = haversine(
+                currentPosition.latitude, currentPosition.longitude,
+                shape[i].shape_pt_lat, shape[i].shape_pt_lon
+            );
             if (dist < minDist) {
                 minDist = dist;
                 closestIdx = i;
             }
         }
-        if (closestIdx >= shape.length - 1) return previousBearing;
-        const prev = shape[closestIdx];
-        const next = shape[closestIdx + 1];
-        const dLon = (next.shape_pt_lon - prev.shape_pt_lon) * Math.PI / 180;
-        const lat1 = prev.shape_pt_lat * Math.PI / 180;
-        const lat2 = next.shape_pt_lat * Math.PI / 180;
-        const y = Math.sin(dLon) * Math.cos(lat2);
-        const x = Math.cos(lat1) * Math.sin(lat2) -
-            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        let bearing = Math.atan2(y, x) * 180 / Math.PI;
-        return (bearing + 360) % 360;
+
+        if (closestIdx < shape.length - 1) {
+            const a = shape[closestIdx];
+            const b = shape[closestIdx + 1];
+            shapeBearing = bearingBetween(a.shape_pt_lat, a.shape_pt_lon, b.shape_pt_lat, b.shape_pt_lon);
+        }
     }
 
-    // Calculate bearing from previous GPS position
-    const toRad = deg => deg * Math.PI / 180;
-    const dLat = toRad(currentPosition.latitude - previousPosition.latitude);
-    const dLon = toRad(currentPosition.longitude - previousPosition.longitude);
-    const lat1 = toRad(previousPosition.latitude);
-    const lat2 = toRad(currentPosition.latitude);
+    // If previous GPS position is available and has significant movement
+    if (previousPosition?.latitude && previousPosition?.longitude) {
+        const gpsDistance = haversine(
+            previousPosition.latitude, previousPosition.longitude,
+            currentPosition.latitude, currentPosition.longitude
+        );
 
-    const distance = haversine(previousPosition.latitude, previousPosition.longitude, currentPosition.latitude, currentPosition.longitude);
-    if (distance < 10) return previousBearing;
+        if (gpsDistance > 20) { // Require real movement to accept GPS bearing
+            const gpsBearing = bearingBetween(
+                previousPosition.latitude, previousPosition.longitude,
+                currentPosition.latitude, currentPosition.longitude
+            );
 
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) -
-        Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    let bearing = Math.atan2(y, x) * 180 / Math.PI;
-    return (bearing + 360) % 360;
+            // If GPS bearing deviates significantly from shape, use it, otherwise prefer shape
+            const angleDiff = Math.abs(gpsBearing - shapeBearing);
+            const minimalAngleDiff = angleDiff > 180 ? 360 - angleDiff : angleDiff;
+
+            if (minimalAngleDiff > 90) {
+                // Accept GPS bearing if it's convincingly different
+                return gpsBearing;
+            }
+        }
+    }
+
+    // Default fallback: shape bearing
+    return shapeBearing;
 }
+
+
 
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {

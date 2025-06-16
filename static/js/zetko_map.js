@@ -1,3 +1,5 @@
+let stopsLoaded = false;
+
 const map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
@@ -21,6 +23,7 @@ map.addControl(
 
 map.on('load', async () => {
     hideTransitLayers();
+    await loadRoutes();
     await loadStops();
     setupVehicleSources();
     setupVehicleLayers();
@@ -38,6 +41,7 @@ function hideTransitLayers() {
 }
 
 async function loadStops() {
+    if (stopsLoaded) return;
     const stops = JSON.parse(localStorage.getItem('zetkoStops')) || {
         type: 'FeatureCollection',
         features: []
@@ -89,8 +93,9 @@ async function loadStops() {
     });
 
     const stopData = await fetch('/stops').then(res => res.json());
-    localStorage.setItem('zetkoStops', JSON.stringify(stopData));
     map.getSource('stops').setData(stopData);
+    localStorage.setItem('zetkoStops', JSON.stringify(stopData));
+    stopsLoaded = true;
 }
 
 function setupVehicleSources() {
