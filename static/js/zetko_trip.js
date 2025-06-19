@@ -19,7 +19,7 @@ async function generateTripDetails(tripId, initialRender = true) {
 
     let vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
     // if it's not found, wait for 1s and try again
-    if (!vehicleMarker && initialRender && map.getSource('vehicles')?._data?.features?.length == 0) {
+    if (!vehicleMarker && initialRender && !map.getSource('vehicles')) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
     }
