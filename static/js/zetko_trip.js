@@ -17,7 +17,7 @@ async function generateTripDetails(tripId, initialRender = true) {
         return (min >= 1 ? `+${min}` : `${min}`) + " min";
     };
 
-    const vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
+    let vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
     // if it's not found, wait for 1s and try again
     if (!vehicleMarker && initialRender) {
       await new Promise(resolve => setTimeout(resolve, 1000));
