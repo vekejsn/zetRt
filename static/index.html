@@ -31,6 +31,9 @@
     body.info-panel-open #map {
       height: calc(50vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     }
+    #search-div {
+      max-width: 80%;
+    }
     @media screen and (min-width: 768px) {
       #info-panel {
         top: 6rem;
@@ -56,7 +59,7 @@
 <body class="font-sans bg-base-100">
   <div id="map"></div>
   <!-- Search Bar -->
-<div class="absolute top-4 left-4 z-50 w-full md:w-[340px] max-w-full pointer-events-none">
+<div class="absolute top-4 left-4 z-50 w-full md:w-[340px] max-w-full pointer-events-none" id="search-div">
   <div class="relative pointer-events-auto">
     <div class="flex gap-2">
       <button id="menu-btn" class="btn btn-primary"><i class="bi bi-list"></i></button>
