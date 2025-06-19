@@ -18,6 +18,11 @@ async function generateTripDetails(tripId, initialRender = true) {
     };
 
     const vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
+    // if it's not found, wait for 1s and try again
+    if (!vehicleMarker && initialRender) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
+    }
     console.log(`Generating trip details for trip ${tripId}`, trip, vehicleMarker);
     let locationStatus = '';
     if (trip.realTime && vehicleMarker && !vehicleMarker?.properties?.interpolated) {
