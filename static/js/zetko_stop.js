@@ -43,7 +43,7 @@ function renderRouteGroup(group) {
 
   let html = `
     <div class="mb-6" id="${groupId}-wrapper">
-      <div class="flex items-center gap-2 mb-2">
+      <div class="flex items-center gap-2 mb-2" onclick="generateRouteArrivals('${sample.routeId}')">
         <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">${sample.routeShortName}</span>
         <span class="text-sm text-gray-600">${sample.tripHeadsign}</span>
       </div>

@@ -1,16 +1,31 @@
-let routes = [];
-
 function openInfoPanel(contentHtml) {
     const panel = document.getElementById('info-panel');
     const content = document.getElementById('info-panel-content');
     content.innerHTML = contentHtml;
     panel.style.display = 'block';
+    document.body.classList.add('info-panel-open');
+    if (typeof map !== 'undefined' && typeof map.resize === 'function') {
+        map.resize();  // Ensure map resizes correctly
+    }
+    // Clean search results if they exist
+    const resBox = document.getElementById('search-results');
+    const searchInput = document.getElementById('search-input');
+    if (resBox) {
+        resBox.innerHTML = '';
+    }
+    if (searchInput) {
+        searchInput.value = '';
+    }
 }
 
 function closeInfoPanel() {
     document.getElementById('info-panel').style.display = 'none';
     document.getElementById('info-panel-content').innerHTML = '';
     location.hash = '';  // optional: reset hash
+    document.body.classList.remove('info-panel-open');
+    if (typeof map !== 'undefined' && typeof map.resize === 'function') {
+        map.resize();  // Ensure map resizes correctly
+    }
 }
 
 // Dispatch router based on URL hash

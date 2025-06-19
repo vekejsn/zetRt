@@ -379,7 +379,10 @@ const loadGtfs = async (url) => {
                                 SELECT stop_id FROM StopTimes WHERE trip_id = ? ORDER BY stop_sequence ASC
                             `).all(trip.trip_id);
                             const stopIdSeq = stopIds.map(row => row.stop_id).join(',');
-                            const hash = crypto.createHash('md5').update(stopIdSeq).digest('hex');
+                            // Use a simple JS hash as a fallback if crypto.createHash is not available
+                            let hash = String(
+                                stopIdSeq.split('').reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0)
+                            );
                             if (!shapeGroups[hash]) shapeGroups[hash] = [];
                             shapeGroups[hash].push(trip.trip_id);
                         }
@@ -722,7 +725,8 @@ app.get('/routes/:id/trips', cache('30 seconds'), async (req, res) => {
                 startTime: startTimes.find(st => st.trip_id == trip.trip_id).start_time,
                 endTime: endTimes.find(et => et.trip_id == trip.trip_id).end_time,
                 realTime: rt ? true : false,
-                blockId: trip.block_id
+                blockId: trip.block_id,
+                vehicleId: VP_MAP[trip.trip_id] || 'XXX',
             });
         }
         // sort by start time
@@ -883,30 +887,6 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
         res.status(500).json({ message: 'Internal Server Error' });
     }
 });
-
-app.get('/database/dump_as_file', (req, res) => {
-    try {
-        // Create a read stream for the database file
-        const dbFileStream = fs.createReadStream('./zet.sqlite3');
-
-        // Set headers for the file download
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Content-Disposition', 'attachment; filename=zet.sqlite3');
-
-        // Pipe the file stream directly to the response
-        dbFileStream.pipe(res);
-
-        // Handle stream errors
-        dbFileStream.on('error', (err) => {
-            insertIntoLog(err.message + ' ' + err.stack);
-            res.status(500).json({ message: 'Internal Server Error' });
-        });
-    } catch (e) {
-        insertIntoLog(e.message + ' ' + e.stack);
-        res.status(500).json({ message: 'Internal Server Error' });
-    }
-});
-
 
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);

@@ -18,26 +18,39 @@ async function generateTripDetails(tripId, initialRender = true) {
     };
 
     const vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
+    console.log(`Generating trip details for trip ${tripId}`, trip, vehicleMarker);
+    let locationStatus = '';
+    if (trip.realTime && vehicleMarker && !vehicleMarker?.properties?.interpolated) {
+      locationStatus = 'Prikazana je stvarna lokacija.';
+    } else if (
+      (trip.realTime && vehicleMarker && vehicleMarker?.properties?.interpolated) ||
+      (!trip.realTime && vehicleMarker && vehicleMarker?.properties?.interpolated)
+    ) {
+      locationStatus = 'Prikazana je predviđena lokacija.';
+    } else if (trip.realTime && !vehicleMarker) {
+      locationStatus = 'Lokaciju vozila nije moguće prikazati.';
+    }
 
     let content = `
     <div class="flex justify-between items-start mb-2">
       <div>
-        <h2 class="text-l font-semibold break-words">
-          <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
-            ${trip.routeShortName}
-          </span> → ${trip.tripHeadsign} ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i> ' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
-        </h2>
-        <p class="text-sm text-gray-500">
-          Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}
-          <br/>
-          Prikazana je ${trip.realTime && !vehicleMarker?.properties?.interpolated ? `stvarna lokacija.` : 'predviđena lokacija.'}
-        </p>
+      <h2 class="text-l font-semibold break-words" onclick="location.hash = '#route/${trip.routeId}';">
+        <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
+        ${trip.routeShortName}
+        </span> → ${trip.tripHeadsign} ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i> ' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
+      </h2>
+      <p class="text-sm text-gray-500">
+        Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}
+        <br/>
+        ${vehicleDetails[trip.vehicleId] ? `<span class="text-gray-500">${`${vehicleDetails[trip.vehicleId].model.trim()} ${vehicleDetails[trip.vehicleId].registrationNumber ? `(${vehicleDetails[trip.vehicleId].registrationNumber.trim()})` : ''}`.trim()}</span><br/>` : ''}
+        ${locationStatus}
+      </p>
       </div>
       <button class="delete" onclick="closeInfoPanel()"></button>
     </div>
     <hr class="mb-4" />
     <div id="trip-stop-list" class="space-y-2 overflow-y-auto max-h-[70vh] pr-1">
-  `;
+    `;
 
     let nextStopId = null;
 

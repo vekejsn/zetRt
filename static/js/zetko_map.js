@@ -10,6 +10,9 @@ const map = new maplibregl.Map({
     minZoom: 10,
 });
 
+var routes = [];
+var vehicleDetails = {};
+
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 // Add geolocate control to the map.
 map.addControl(
@@ -20,6 +23,10 @@ map.addControl(
         trackUserLocation: true
     })
 );
+
+async function loadRoutes() {
+    routes = await fetch('/routes').then(res => res.json());
+}
 
 map.on('load', async () => {
     hideTransitLayers();
@@ -287,3 +294,24 @@ function formatTime(unixTimestamp) {
     const date = new Date(unixTimestamp * 1000);
     return date.toISOString().substr(11, 5);  // HH:MM
 }
+
+function getVehicleData() {
+    // load vehicle data from the server and store in localStorage
+    vehicleDetails = JSON.parse(localStorage.getItem('zetkoVehicles')) || {};
+    return fetch('/json/vehicles.json')
+        .then(res => res.json())
+        .then(async data => {
+            dict_data = {}
+            for (let vehicle of data) {
+                dict_data[vehicle.internalNo] = vehicle;
+            }
+            localStorage.setItem('zetkoVehicles', JSON.stringify(dict_data));
+            return dict_data;
+        })
+        .catch(err => {
+            console.error('Error loading vehicle data:', err);
+            return JSON.parse(localStorage.getItem('zetkoVehicles')) || {};
+        });
+}
+
+getVehicleData()
