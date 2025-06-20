@@ -37,24 +37,29 @@ async function generateTripDetails(tripId, initialRender = true) {
     }
 
     let content = `
-    <div class="flex justify-between items-start mb-2">
-      <div>
+<div class="h-[50vh] md:h-[70vh] flex flex-col"> <!-- Or h-[600px] if not full screen -->
+  <div class="flex justify-between items-start mb-2">
+    <div>
       <h2 class="text-l font-semibold break-words" onclick="location.hash = '#route/${trip.routeId}';">
         <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
-        ${trip.routeShortName}
-        </span> → ${trip.tripHeadsign} ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i> ' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
+          ${trip.routeShortName}
+        </span> → ${trip.tripHeadsign}
+        ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i>' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
       </h2>
       <p class="text-sm text-gray-500">
-        Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}
-        <br/>
-        ${vehicleDetails[trip.vehicleId] ? `<span class="text-gray-500">${`${vehicleDetails[trip.vehicleId].model.trim()} ${vehicleDetails[trip.vehicleId].registrationNumber ? `(${vehicleDetails[trip.vehicleId].registrationNumber.trim()})` : ''}`.trim()}</span><br/>` : ''}
+        Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}<br/>
+        ${vehicleDetails[trip.vehicleId] ? `<span class="text-gray-500">${`${vehicleDetails[trip.vehicleId].model.trim()} ${vehicleDetails[trip.vehicleId].registrationNumber ? `(${vehicleDetails[trip.vehicleId].registrationNumber.trim()})` : ''}`.trim()}</span> | ` : ''}
         ${locationStatus}
       </p>
-      </div>
-      <button class="delete" onclick="closeInfoPanel()"></button>
     </div>
-    <hr class="mb-4" />
-    <div id="trip-stop-list" class="space-y-2 overflow-y-auto max-h-[70vh] pr-1">
+    <button class="delete" onclick="closeInfoPanel()"></button>
+  </div>
+
+  <hr class="mb-4" />
+
+  <!-- This wrapper ensures trip-stop-list fills remaining space -->
+  <div class="flex-1 overflow-hidden">
+    <div id="trip-stop-list" class="space-y-2 overflow-y-auto h-full pb-6 overflow-x-hidden">
     `;
 
     let nextStopId = null;
@@ -98,7 +103,7 @@ async function generateTripDetails(tripId, initialRender = true) {
       </div>`;
     }
 
-    content += `</div>`;
+    content += `</div></div>`;
 
     openInfoPanel(content);
 
