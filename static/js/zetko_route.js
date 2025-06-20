@@ -104,8 +104,11 @@ async function generateRouteArrivals(routeId) {
 
     const arrivals = await fetch(`/routes/${routeId}/trips`).then(res => res.json());
 
-    let content = renderRouteHeader(route);
-
+    let content = `
+    <div class="h-[50vh] md:h-[70vh] flex flex-col overflow-hidden">
+        ${renderRouteHeader(route)}
+        <div id="trip-stop-list" class="flex-1 overflow-y-auto space-y-4 pb-6 mt-2">
+    `;
     if (!arrivals.length) {
         content += `<p class="text-gray-500">Za danas više nema polazaka.</p>`;
     } else {

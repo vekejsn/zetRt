@@ -99,36 +99,39 @@ async function generateArrivals(data, update = false, refreshTime = 10000) {
 
   const isSavedStop = savedStops.has(stopId);
 
-  let content = `
-  <div class="flex justify-start items-start mb-2">
-    <div class="flex items-center justify-center w-8 h-8">
-      <button
-        class="text-xl ${isSavedStop ? 'text-yellow-400' : ''}"
-        title="Spremi stajalište"
-        onclick="
-          const stopSet = savedStops;
-          const el = this;
-          const id = '${stopId}';
-          if (stopSet.has(id)) {
-            stopSet.delete(id);
-            el.classList.remove('text-yellow-400');
-            el.innerHTML = '<i class=\\'bi bi-star\\'></i>';
-          } else {
-            stopSet.add(id);
-            el.classList.add('text-yellow-400');
-            el.innerHTML = '<i class=\\'bi bi-star-fill\\'></i>';
-          }
-          saveSavedStops();
-        ">
-        <i class="bi ${isSavedStop ? 'bi-star-fill' : 'bi-star'}"></i>
-      </button>
+let content = `
+  <div class="h-[50vh] md:h-[70vh] flex flex-col overflow-hidden">
+    <div class="flex justify-start items-start mb-2">
+      <div class="flex items-center justify-center w-8 h-8">
+        <button
+          class="text-xl ${isSavedStop ? 'text-yellow-400' : ''}"
+          title="Spremi stajalište"
+          onclick="
+            const stopSet = savedStops;
+            const el = this;
+            const id = '${stopId}';
+            if (stopSet.has(id)) {
+              stopSet.delete(id);
+              el.classList.remove('text-yellow-400');
+              el.innerHTML = '<i class=\\'bi bi-star\\'></i>';
+            } else {
+              stopSet.add(id);
+              el.classList.add('text-yellow-400');
+              el.innerHTML = '<i class=\\'bi bi-star-fill\\'></i>';
+            }
+            saveSavedStops();
+          ">
+          <i class="bi ${isSavedStop ? 'bi-star-fill' : 'bi-star'}"></i>
+        </button>
+      </div>
+      <div>
+        <h2 class="text-xl font-semibold break-words">${stopName}</h2>
+        <p class="text-sm text-gray-500">(${stopId})</p>
+      </div>
     </div>
-    <div>
-      <h2 class="text-xl font-semibold break-words">${stopName}</h2>
-      <p class="text-sm text-gray-500">(${stopId})</p>
-    </div>
-  </div>
-  <hr class="mb-4" />
+    <hr class="mb-4" />
+
+    <div class="flex-1 overflow-y-auto space-y-2 pb-6" id="trip-stop-list">
 `;
 
   const siblingStops = map.getSource('stops')._data.features.filter(s => s.properties.parentId === parentStation);
@@ -157,6 +160,9 @@ async function generateArrivals(data, update = false, refreshTime = 10000) {
   for (const groupKey in routeGroups) {
     content += renderRouteGroup(routeGroups[groupKey]);
   }
+
+  content += `</div>
+  </div>`;
 
   openInfoPanel(content);
 
