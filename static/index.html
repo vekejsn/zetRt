@@ -167,6 +167,25 @@
             resBox.classList.remove('hidden');
           }
         }
+        if (routes) {
+          const routeMatches = routes.filter(r => prepareStringForSearchComparison(r.routeShortName).includes(prepareStringForSearchComparison(val)) ||
+            prepareStringForSearchComparison(r.routeLongName).includes(prepareStringForSearchComparison(val)));
+          if (routeMatches.length > 0) {
+            resBox.innerHTML += routeMatches.map(r => `
+          <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-yellow-100 transition cursor-pointer bg-white"
+           onclick='location.hash = "#route/" + "${r.routeId}"'>
+            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-200 text-yellow-700">
+          <i class="bi bi-signpost-split-fill"></i>
+            </span>
+            <div class="flex flex-row">
+          <span class="ml-2 badge badge-primary" style="color: white; background-color: #1264AB; font-weight: bold;">${r.routeShortName}</span>
+          <span class="text-xs text-gray-500">→ ${r.routeLongName}</span>
+            </div>
+          </div>
+            `).join('');
+            resBox.classList.remove('hidden');
+        }
+        }
       }, 125);
     });
   </script>
