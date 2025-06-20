@@ -506,7 +506,7 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
         for (let stopTime of stopTimes) {
             let rtUpdate = RT_DATA.find(rt => rt.trip.tripId == stopTime.trip_id);
             if (rtUpdate) {
-                let stopTimeUpdate = rtUpdate.stopTimeUpdate[0];
+                let stopTimeUpdate = await getDelayForStop(rtUpdate, stopTime.stop_sequence);
                 if (stopTimeUpdate) {
                     if (req.query.current) {
                         if (secondsFromMidnight > stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0)) {
@@ -569,6 +569,22 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
     }
 });
 
+function getDelayForStop(rtUpdate, currentSequence) {
+  if (!rtUpdate || !rtUpdate.stopTimeUpdate) return null;
+
+  let closestUpdate = null;
+
+  for (const update of rtUpdate.stopTimeUpdate) {
+    if (update.stopSequence <= currentSequence) {
+      if (!closestUpdate || update.stopSequence > closestUpdate.stopSequence) {
+        closestUpdate = update;
+      }
+    }
+  }
+
+  return closestUpdate || null;
+}
+
 app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
     try {
         let tripId = req.params.id;
@@ -583,7 +599,9 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             // check if there is a real time update
             let rtUpdate = RT_DATA.find(rt => rt.trip.tripId == tripId);
             if (rtUpdate) {
-                let stopTimeUpdate = rtUpdate.stopTimeUpdate[0]
+                // find the stopTimeUpdate closest to the current stop, so we can apply the correct delay
+                // e.g. if stoptimeupdates are defined for stops 7, 9 - for stops 1-8 we apply the delay of stop 7, for stops 9+ we apply the delay of stop 9
+                let stopTimeUpdate = await getDelayForStop(rtUpdate, stopTime.stop_sequence);
                 if (stopTimeUpdate) {
                     // if the update is for a stop prior to the current one, keep it
                     formattedStopTimes.push({
@@ -595,6 +613,18 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
                         arrivalDelay: stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0,
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
                         realTime: true
+                    });
+                } else {
+                    // if there is no update for this stop, use the original stop time
+                    formattedStopTimes.push({
+                        stopId: stopTime.stop_id,
+                        stopName: stopTime.stop_name,
+                        stopSequence: stopTime.stop_sequence,
+                        arrivalTime: stopTime.arrival_time_int,
+                        departureTime: stopTime.departure_time_int,
+                        arrivalDelay: 0,
+                        departureDelay: 0,
+                        realTime: false
                     });
                 }
             } else {
