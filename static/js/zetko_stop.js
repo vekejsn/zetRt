@@ -26,13 +26,13 @@ function renderArrivalCard(arr, onClick) {
 
   return `
     <div onclick="${onClick}"
-         class="cursor-pointer transition transform hover:scale-105 bg-white dark:bg-base-200 rounded-lg shadow-md p-3 w-full sm:w-28 md:w-32 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-1">
+         class="cursor-pointer transition transform hover:scale-105 bg-white dark:bg-base-200 rounded-lg shadow-md p-3 w-full sm:w-28 md:w-32 text-center">
+      <div class="flex items-center justify-center mb-1 gap-1">
         ${realTimeIcon}
         ${late ? `<span class="text-gray-400 line-through">${original}</span>` : ''}
         <span class="font-semibold">${time}</span>
       </div>
-      <div class="text-xs text-gray-500 whitespace-nowrap">VR ${arr.blockId} / ${arr.vehicleId}</div>
+      <div class="text-xs text-gray-500">VR ${arr.blockId} / ${arr.vehicleId}</div>
     </div>`;
 }
 
@@ -47,7 +47,7 @@ function renderRouteGroup(group) {
         <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">${sample.routeShortName}</span>
         <span class="text-sm text-gray-600">${sample.tripHeadsign}</span>
       </div>
-      <div class="grid grid-rows-2 gap-3" id="${groupId}">`;
+      <div class="grid grid-cols-2 gap-3" id="${groupId}">`;
 
   group.slice(0, 4).forEach(arr => {
     html += renderArrivalCard(arr, `location.hash = 'trip/${arr.tripId}'`);
