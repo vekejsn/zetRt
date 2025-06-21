@@ -13,8 +13,8 @@ async function generateTripDetails(tripId, initialRender = true) {
     const currentTime = getCurrentTimeInSeconds();
     const isLate = (delay) => delay > 60;
     const delayText = (delay) => {
-        const min = Math.round(delay / 60);
-        return (min >= 1 ? `+${min}` : `${min}`) + " min";
+        const min = Math.abs(Math.round(delay / 60));
+        return (delay > 0 ? `kasni ${min}` : `rani ${min}`) + " min";
     };
 
     let vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
@@ -118,15 +118,17 @@ async function generateTripDetails(tripId, initialRender = true) {
         const tripShape = await fetch(`/trips/${tripId}/shape`).then(res => res.json());
         // This is a single feature GeoJSON
         if (tripShape && tripShape.geometry && tripShape.geometry.type === 'LineString') {
+          // Depending on route type, set the color
+          const routeColor = trip.routeType == 3 ? '#126400' : '#3070A1';
+          map.setPaintProperty('trip-shape', 'line-color', routeColor);
             map.getSource('trip-shape').setData({
                 type: 'FeatureCollection',
                 features: [tripShape]
             });
             map.setLayoutProperty('trip-shape', 'visibility', 'visible');
         }
-
-
     }
+
     if (nextStopId) {
         // Scroll to next stop
         const nextStopElement = document.getElementById(nextStopId);

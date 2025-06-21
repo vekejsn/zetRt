@@ -644,6 +644,7 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             tripId: trip.trip_id,
             routeId: trip.route_id,
             routeShortName: trip.route_short_name,
+            routeType: trip.route_type,
             routeLongName: trip.route_long_name,
             tripHeadsign: trip.trip_headsign,
             directionId: trip.direction_id,
@@ -1028,7 +1029,10 @@ async function preloadData() {
 }
 
 function calculateBearingFromGPS(currentPosition, previousPosition, trip, previousBearing = 0) {
-    if (!currentPosition?.latitude || !currentPosition?.longitude) return previousBearing;
+    if (!currentPosition?.latitude || !currentPosition?.longitude) {
+        console.warn('Current position is not valid, returning previous bearing:', previousBearing);
+        return previousBearing;
+    }
 
     const toRad = deg => deg * Math.PI / 180;
     const toDeg = rad => rad * 180 / Math.PI;
@@ -1085,7 +1089,7 @@ function calculateBearingFromGPS(currentPosition, previousPosition, trip, previo
             currentPosition.latitude, currentPosition.longitude
         );
 
-        if (gpsDistance > 20) { // Require real movement to accept GPS bearing
+        if (gpsDistance > 10) { // Require real movement to accept GPS bearing
             const gpsBearing = bearingBetween(
                 previousPosition.latitude, previousPosition.longitude,
                 currentPosition.latitude, currentPosition.longitude
@@ -1097,12 +1101,18 @@ function calculateBearingFromGPS(currentPosition, previousPosition, trip, previo
 
             if (minimalAngleDiff > 90) {
                 // Accept GPS bearing if it's convincingly different
+                console.log(`Using GPS bearing for trip ${trip.trip_id}: ${gpsBearing}° (shape bearing: ${shapeBearing}°)`);
                 return gpsBearing;
             }
+        } else if (gpsDistance < 5) {
+            // Use previous bearing if GPS movement is too small
+            console.log(`Using previous bearing for trip ${trip.trip_id}: ${previousBearing}° (shape bearing: ${shapeBearing}°)`);
+            return previousBearing;
         }
     }
 
     // Default fallback: shape bearing
+    console.log(`Using shape bearing for trip ${trip.trip_id}: ${shapeBearing}°`);
     return shapeBearing;
 }
 
@@ -1403,7 +1413,7 @@ app.use(express.static('static'));
 
 app.listen(port, async () => {
     await createTables();
-    await loadGtfs();
+    //await loadGtfs();
     getRtData();
     w_preloadData();
     console.log(`Server running on port ${port}`);

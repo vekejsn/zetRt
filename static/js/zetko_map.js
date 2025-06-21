@@ -65,14 +65,22 @@ async function loadStops() {
         id: 'stops',
         type: 'symbol',
         source: 'stops',
+        minzoom: 14,
         layout: {
             "icon-size": 0.375,
-            "text-field": ["step", ["zoom"], "", 16, ["get", "name"]],
+            "text-field": ["step", ["zoom"], "", 17, ["get", "name"]],
             "text-offset": [0, 0.8],
-            "text-anchor": "top"
+            "text-anchor": "top",
+            'icon-allow-overlap': true,
+            'text-allow-overlap': true,
         },
         paint: {
-            "text-color": "#3070A1",
+            "text-color": [
+                'case',
+                ['==', ['get', 'stopType'], "1"], "#3070A1", // Tram
+                ['==', ['get', 'stopType'], "2"], '#126400', // Bus
+                "#3070A1" // Default color (Tram blue)
+            ],
             "text-halo-color": "#ffffff",
             "text-halo-width": 1
         }
@@ -120,7 +128,13 @@ function setupVehicleSources() {
         const routeType = parseInt(routeTypeStr, 10);
         const realTime = realTimeStr === 'true';
 
-        const color = !realTime ? '#535353' : routeType === 3 ? '#126400' : '#1264AB';
+        let color = '#121212';
+        if (routeType == 3) {
+            color = realTime ? '#126400' : '#727272'; // Green for bus
+        } else if (routeType == 0) {
+            color = realTime ? '#1264AB' : '#535353'; // Blue for tram
+        }
+
         const imageData = id.endsWith('-bg')
             ? await generateVehicleBgMarker(color)
             : await generateVehicleFgMarker(color, 'white', routeShortName);
