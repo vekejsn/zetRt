@@ -26,7 +26,8 @@ function renderRouteScheduleTable(trips) {
     const groupedByHour = {};
 
     for (const trip of trips) {
-        const time = luxon.DateTime.fromSeconds(trip.startTime, { zone: 'Europe/Zagreb' }).toFormat('HH:mm');
+        const midnight = luxon.DateTime.now().setZone('Europe/Zagreb').startOf('day');
+        const time = midnight.plus({ seconds: trip.startTime }).toFormat('HH:mm');
         const hour = time.split(':')[0];
         trip.formattedTime = time;
         groupedByHour[hour] = groupedByHour[hour] || [];
