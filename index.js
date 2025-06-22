@@ -1430,7 +1430,7 @@ app.use(express.static('static'));
 
 app.listen(port, async () => {
     await createTables();
-    await loadGtfs();
+    //await loadGtfs();
     getRtData();
     w_preloadData();
     console.log(`Server running on port ${port}`);

@@ -73,6 +73,9 @@ async function loadStops() {
             "text-anchor": "top",
             'icon-allow-overlap': true,
             'text-allow-overlap': true,
+            "text-font": [
+                "Noto Sans Regular"
+            ],
         },
         paint: {
             "text-color": [
@@ -172,6 +175,9 @@ function setupVehicleLayers() {
                     ['to-string', ['get', 'realTime']],
                     `-${suffix}`
                 ],
+                "text-font": [
+                    "Noto Sans Regular"
+                ],
                 'icon-size': 0.65,
                 'icon-allow-overlap': true,
                 'text-allow-overlap': true,
@@ -194,6 +200,9 @@ function setupVehicleLayers() {
                 'concat',
                 ['literal', 'VR: '], ['get', 'blockId'],
                 ['literal', '\nGB: '], ['get', 'vehicleId']
+            ],
+            "text-font": [
+                "Noto Sans Regular"
             ],
             'text-size': 12,
             'text-anchor': 'left',
