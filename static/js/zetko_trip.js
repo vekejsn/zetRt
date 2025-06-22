@@ -23,7 +23,6 @@ async function generateTripDetails(tripId, initialRender = true) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
     }
-    console.log(`Generating trip details for trip ${tripId}`, trip, vehicleMarker);
     let locationStatus = '';
     if (trip.realTime && vehicleMarker && !vehicleMarker?.properties?.interpolated) {
       locationStatus = 'Prikazana je stvarna lokacija.';
@@ -110,7 +109,6 @@ async function generateTripDetails(tripId, initialRender = true) {
     if (initialRender) {
         // Find vehicle on map
         if (vehicleMarker) {
-            console.log(`Flying to vehicle for trip ${tripId}`);
             const vehicleCoords = vehicleMarker.geometry.coordinates;
             map.flyTo({ center: vehicleCoords, zoom: 16, speed: 3 });
         }

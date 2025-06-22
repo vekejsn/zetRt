@@ -2,7 +2,7 @@ let stopsLoaded = false;
 
 const map = new maplibregl.Map({
     container: 'map',
-    style: 'https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+    style: 'json/mapstyle.json',
     center: [15.9775658, 45.812892],
     pitch: 0,
     maxPitch: 60,
@@ -139,6 +139,9 @@ function setupVehicleSources() {
             ? await generateVehicleBgMarker(color)
             : await generateVehicleFgMarker(color, 'white', routeShortName);
 
+        if (map.hasImage(id)) {
+            return;
+        }
         map.addImage(id, { width: id.endsWith('-bg') ? 64 : 42, height: id.endsWith('-bg') ? 64 : 42, data: imageData });
     });
 }
@@ -220,7 +223,6 @@ function registerMapEvents() {
 
 function onFeatureClick(e) {
     const feature = e.features[0];
-    console.log('Feature clicked:', feature);
     if (!feature.properties) return;
     switch (feature.source) {
         case 'stops':
