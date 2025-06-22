@@ -462,7 +462,7 @@ const loadGtfs = async (url) => {
 
 const port = 8910;
 
-app.get('/stops', cache('1 day'), (req, res) => {
+app.get('/stops', cache('1 hour'), (req, res) => {
     let stops = sqlite3.prepare("SELECT * FROM Stops WHERE parent_station != ''").all();
     let geoJson = {
         type: "FeatureCollection",
@@ -1010,7 +1010,9 @@ async function preloadData() {
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     let tripIds = await TRIPS.map(trip => trip.trip_id);
     console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', tripIds.length);
-    SHAPES_MAP = await sqlite3.prepare('SELECT * FROM Shapes WHERE shape_id IN (' + tripIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence').all(shapeIds);
+    SHAPES_MAP = await sqlite3.prepare(
+    'SELECT * FROM Shapes WHERE shape_id IN (' + shapeIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence'
+    ).all(shapeIds);
     SHAPES_MAP = SHAPES_MAP.reduce((acc, shape) => {
         if (!acc[shape.shape_id]) acc[shape.shape_id] = [];
         acc[shape.shape_id].push(shape);
@@ -1117,12 +1119,26 @@ function calculateBearingFromGPS(currentPosition, previousPosition, trip, previo
 }
 
 
+function getCurrentServiceTime() {
+    const now = luxon.DateTime.now().setZone('Europe/Zagreb');
+    const todaySeconds = now.hour * 3600 + now.minute * 60 + now.second;
+
+    // If time is less than 3 AM, consider it part of the previous service day
+    let serviceDate = now;
+    if (todaySeconds < 10800) {  // 3 * 3600
+        serviceDate = serviceDate.minus({ days: 1 });
+    }
+
+    return {
+        currentTime: todaySeconds + (todaySeconds < 10800 ? 86400 : 0),  // add 24h if before 3am
+        serviceDate: serviceDate.toISODate()
+    };
+}
+
 
 app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
     try {
-        let calendar = await getCalendarIds();
-
-        let currentTime = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss').split(':').reduce((acc, time) => (60 * acc) + +time);
+        const { currentTime, serviceDate } = getCurrentServiceTime();
         console.log('Current time', currentTime, luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('HH:mm:ss'));
 
         let geoJson = {
@@ -1234,16 +1250,17 @@ async function getCalendarIds() {
     let calendar = await sqlite3.prepare('SELECT * FROM Calendar').all();
     let calendar_dates = await sqlite3.prepare('SELECT * FROM CalendarDates').all();
     let validCalendarIds = [];
-    let dates = [luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd')];
+    let now = luxon.DateTime.now().setZone('Europe/Zagreb');
+    let dates = [now.toFormat('yyyyMMdd')];
     // if it's before 4am Zagreb time, also check for yesterday
-    if (luxon.DateTime.now().setZone('Europe/Zagreb').hour < 4) {
-        dates.push(luxon.DateTime.now().setZone('Europe/Zagreb').minus({ days: 1 }).toFormat('yyyyMMdd'));
+    if (now.hour < 4) {
+        dates.push(now.minus({ days: 1 }).toFormat('yyyyMMdd'));
     }
     for (let date of dates) {
         let calendarIds = await getCalendarIdsForDate(calendar, calendar_dates, date);
         validCalendarIds = validCalendarIds.concat(calendarIds);
     }
-    VALID_CALENDAR_IDS = validCalendarIds;
+    VALID_CALENDAR_IDS = [...new Set(validCalendarIds)];
     return validCalendarIds;
 }
 
