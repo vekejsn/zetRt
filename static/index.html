@@ -173,13 +173,82 @@
           resBox.innerHTML = '';
           resBox.classList.add('hidden');
         }
-        console.log('Searching for:', val);
+        const normVal = prepareStringForSearchComparison(val);
+
+        // Helper for relevance: lower is better
+        function getRelevance(str, search) {
+          str = prepareStringForSearchComparison(str);
+          if (str === search) return 0;
+          if (str.startsWith(search)) return 1;
+          if (str.includes(search)) return 2;
+          return 3;
+        }
+
+        let results = [];
+
+        // Stops
         const stopSource = map?.getSource('stops')._data;
         if (stopSource) {
-          const stops = stopSource.features.filter(f => prepareStringForSearchComparison(f.properties.name).includes(prepareStringForSearchComparison(val)) ||
-            f.properties.id == val);
-          if (stops.length > 0) {
-            resBox.innerHTML = stops.map(f => `
+          stopSource.features.forEach(f => {
+            const nameRel = getRelevance(f.properties.name, normVal);
+            const idRel = (f.properties.id == val) ? 0 : 3;
+            if (nameRel < 3 || idRel === 0) {
+              results.push({
+                type: 'stop',
+                feature: f,
+                relevance: Math.min(nameRel, idRel)
+              });
+            }
+          });
+        }
+
+        // Vehicles
+        const vehicleSource = map?.getSource('vehicles')._data;
+        if (vehicleSource) {
+          vehicleSource.features.forEach(f => {
+            const rel = getRelevance(f.properties.vehicleId, normVal);
+            if (rel < 3) {
+              results.push({
+                type: 'vehicle',
+                feature: f,
+                relevance: rel
+              });
+            }
+          });
+        }
+
+        // Routes
+        if (routes) {
+          routes.forEach(r => {
+            const shortRel = getRelevance(r.routeShortName, normVal);
+            const longRel = getRelevance(r.routeLongName, normVal);
+            if (shortRel < 3 || longRel < 3) {
+              results.push({
+                type: 'route',
+                route: r,
+                relevance: Math.min(shortRel, longRel)
+              });
+            }
+          });
+        }
+
+        // Sort by relevance, then by name/id
+        results.sort((a, b) => {
+          if (a.relevance !== b.relevance) return a.relevance - b.relevance;
+          if (a.type === 'stop' && b.type === 'stop')
+            return a.feature.properties.name.localeCompare(b.feature.properties.name);
+          if (a.type === 'vehicle' && b.type === 'vehicle')
+            return a.feature.properties.vehicleId.localeCompare(b.feature.properties.vehicleId);
+          if (a.type === 'route' && b.type === 'route')
+            return a.route.routeShortName.localeCompare(b.route.routeShortName);
+          return 0;
+        });
+
+        // Render results
+        resBox.innerHTML = results.map(item => {
+          if (item.type === 'stop') {
+            const f = item.feature;
+            return `
           <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-100 transition cursor-pointer bg-white"
            onclick='location.hash = "#stop/" + "${f.properties.id}"'>
             <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-200 text-blue-700">
@@ -188,15 +257,11 @@
             <span class="font-medium text-base">${f.properties.name}</span>
             <span class="text-xs text-gray-500">${f.properties.id}</span>
           </div>
-            `).join('');
-            resBox.classList.remove('hidden');
+            `;
           }
-        }
-        const vehicleSource = map?.getSource('vehicles')._data;
-        if (vehicleSource) {
-          const vehicles = vehicleSource.features.filter(f => prepareStringForSearchComparison(f.properties.vehicleId).includes(prepareStringForSearchComparison(val)));
-          if (vehicles.length > 0) {
-            resBox.innerHTML += vehicles.map(f => `
+          if (item.type === 'vehicle') {
+            const f = item.feature;
+            return `
           <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-green-100 transition cursor-pointer bg-white"
            onclick='location.hash = "#trip/" + "${f.properties.tripId}"'>
             <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-200 text-green-700">
@@ -212,15 +277,11 @@
           </span>
             </div>
           </div>
-            `).join('');
-            resBox.classList.remove('hidden');
+            `;
           }
-        }
-        if (routes) {
-          const routeMatches = routes.filter(r => prepareStringForSearchComparison(r.routeShortName).includes(prepareStringForSearchComparison(val)) ||
-            prepareStringForSearchComparison(r.routeLongName).includes(prepareStringForSearchComparison(val)));
-          if (routeMatches.length > 0) {
-            resBox.innerHTML += routeMatches.map(r => `
+          if (item.type === 'route') {
+            const r = item.route;
+            return `
           <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-yellow-100 transition cursor-pointer bg-white"
            onclick='location.hash = "#route/" + "${r.routeId}"'>
             <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-200 text-yellow-700">
@@ -231,9 +292,13 @@
           <span class="text-xs text-gray-500">→ ${r.routeLongName}</span>
             </div>
           </div>
-            `).join('');
-            resBox.classList.remove('hidden');
+            `;
           }
+          return '';
+        }).join('');
+
+        if (results.length > 0) {
+          resBox.classList.remove('hidden');
         }
       }, 125);
     });
