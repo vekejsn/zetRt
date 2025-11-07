@@ -38,7 +38,7 @@
     });
 
     async function fetchVehicleList() {
-        const response = await fetch('/json/vehicles.json');
+        const response = await fetch('https://cors.proxy.prometko.si/https://gitlab.com/api/v4/projects/vekejsn%2Fvoznipark-data/packages/generic/zet-vehicles/latest/zet/output.json');
         const vehicles = await response.json();
 
         const vehicleList = await fetch('/historic/vehicleids/details').then(response => response.json());

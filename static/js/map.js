@@ -34,7 +34,7 @@ async function initMap() {
         position: 'topright'
     }).addTo(map);
     L.control.locate({ position: `topright` }).addTo(map);
-    vehicleData = await fetch('/json/vehicles.json').then(res => res.json());
+    vehicleData = await fetch('https://cors.proxy.prometko.si/https://gitlab.com/api/v4/projects/vekejsn%2Fvoznipark-data/packages/generic/zet-vehicles/latest/zet/output.json').then(res => res.json());
 }
 
 async function main() {

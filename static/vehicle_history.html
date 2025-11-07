@@ -26,7 +26,7 @@
         <option value="">--Odaberi vozilo--</option>
     </select>
     <span id="vehicle-info"></span>
-    
+
     <div id="data-container" class="vehicle-data"></div>
 
     <script>
@@ -50,7 +50,7 @@
                 option.textContent = id;
                 vehicleSelect.appendChild(option);
             });
-            vehicle_data = await fetch('/json/vehicles.json').then(response => response.json());
+            vehicle_data = await fetch('https://cors.proxy.prometko.si/https://gitlab.com/api/v4/projects/vekejsn%2Fvoznipark-data/packages/generic/zet-vehicles/latest/zet/output.json').then(response => response.json());
         }
 
         async function fetchVehicleHistory() {

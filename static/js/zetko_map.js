@@ -323,7 +323,7 @@ function formatTime(unixTimestamp) {
 function getVehicleData() {
     // load vehicle data from the server and store in localStorage
     vehicleDetails = JSON.parse(localStorage.getItem('zetkoVehicles')) || {};
-    return fetch('/json/vehicles.json')
+    return fetch('https://cors.proxy.prometko.si/https://gitlab.com/api/v4/projects/vekejsn%2Fvoznipark-data/packages/generic/zet-vehicles/latest/zet/output.json')
         .then(res => res.json())
         .then(async data => {
             dict_data = {}
