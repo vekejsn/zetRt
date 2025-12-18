@@ -1000,6 +1000,7 @@ function calculateBearing(previousShapePoint, nextShapePoint) {
 }
 
 let TRIPS = [];
+let TRIP_IDS = []   
 let SHAPES_MAP = [];
 let STOP_TIMES_MAP = [];
 
@@ -1008,8 +1009,8 @@ async function preloadData() {
     console.log('Valid calendar ids', calendar);
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
-    let tripIds = await TRIPS.map(trip => trip.trip_id);
-    console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', tripIds.length);
+    TRIP_IDS = await TRIPS.map(trip => trip.trip_id);
+    console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', TRIP_IDS.length);
     SHAPES_MAP = await sqlite3.prepare(
     'SELECT * FROM Shapes WHERE shape_id IN (' + shapeIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence'
     ).all(shapeIds);
@@ -1385,11 +1386,18 @@ async function getRtData() {
             let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
             let data = [];
             let vehicleData = [];
+            let acceptableDates = [
+                // Today
+                luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd'),
+                // Yesterday, if it's before 4AM
+                ...(luxon.DateTime.now().setZone('Europe/Zagreb').hour < 4 ? [luxon.DateTime.now().setZone('Europe/Zagreb').minus({ days: 1 }).toFormat('yyyyMMdd')] : [])
+            ]
             for (let entity of feed.entity) {
-                if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0) {
+                // Check if we have this tripId cached, otherwise discard
+                if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0 && TRIP_IDS.includes(entity.tripUpdate.trip.tripId) && acceptableDates.includes(entity.tripUpdate.trip.startDate)) {
                     data.push(entity.tripUpdate);
                 }
-                if (entity.vehicle) {
+                if (entity.vehicle && TRIP_IDS.includes(entity.vehicle.trip.tripId) && acceptableDates.includes(entity.vehicle.trip.startDate)) {
                     vehicleData.push(entity.vehicle);
                 }
             }
