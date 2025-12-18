@@ -1020,7 +1020,7 @@ async function preloadData() {
         return acc;
     }
         , {});
-    STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + tripIds.map(() => '?').join(',') + ')').all(tripIds);
+    STOP_TIMES_MAP = await sqlite3.prepare('SELECT * FROM StopTimes WHERE trip_id IN (' + TRIP_IDS.map(() => '?').join(',') + ')').all(TRIP_IDS);
     STOP_TIMES_MAP = STOP_TIMES_MAP.reduce((acc, stopTime) => {
         if (!acc[stopTime.trip_id]) acc[stopTime.trip_id] = [];
         acc[stopTime.trip_id].push(stopTime);
