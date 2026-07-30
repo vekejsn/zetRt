@@ -4,6 +4,8 @@ import fetch from 'node-fetch';
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import Papa from 'papaparse';
 
+const CANCELED_TRIP = GtfsRealtimeBindings.transit_realtime.TripDescriptor.ScheduleRelationship.CANCELED;
+
 const require = createRequire(import.meta.url);
 
 const fs = require('fs');
@@ -51,29 +53,182 @@ const createTables = async () => {
     }
 }
 
-const loadGtfs = async (url) => {
-    createTables();
+const GTFS_FILES = {
+    calendar: { file: 'calendar.txt', headers: ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'] },
+    calendarDates: { file: 'calendar_dates.txt', headers: ['service_id', 'date', 'exception_type'] },
+    routes: { file: 'routes.txt', headers: ['route_id', 'route_short_name', 'route_long_name', 'route_type'] },
+    shapes: { file: 'shapes.txt', headers: ['shape_id', 'shape_pt_lat', 'shape_pt_lon', 'shape_pt_sequence'] },
+    trips: { file: 'trips.txt', headers: ['route_id', 'service_id', 'trip_id'] },
+    stops: { file: 'stops.txt', headers: ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'] },
+    stopTimes: { file: 'stop_times.txt', headers: ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'] }
+};
+
+function parseGtfsCsv(zip, definition) {
+    const entry = zip.getEntry(definition.file);
+    if (!entry) throw new Error(`GTFS is missing required file ${definition.file}`);
+    const parsed = Papa.parse(entry.getData().toString('utf8'), { header: true, skipEmptyLines: 'greedy' });
+    if (parsed.errors.length > 0) throw new Error(`${definition.file} could not be parsed: ${parsed.errors[0].message}`);
+    const headers = parsed.meta.fields || [];
+    const missingHeaders = definition.headers.filter(header => !headers.includes(header));
+    if (missingHeaders.length > 0) throw new Error(`${definition.file} is missing headers: ${missingHeaders.join(', ')}`);
+    return parsed.data.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])));
+}
+
+function parseServiceTime(value) {
+    const match = /^(\d{1,3}):([0-5]\d):([0-5]\d)$/.exec(value || '');
+    return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : null;
+}
+
+function isFiniteCoordinate(value, min, max) {
+    const coordinate = Number(value);
+    return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max;
+}
+
+function distanceInMeters(a, b) {
+    const toRadians = degrees => degrees * Math.PI / 180;
+    const dLat = toRadians(Number(b.shape_pt_lat) - Number(a.shape_pt_lat));
+    const dLon = toRadians(Number(b.shape_pt_lon) - Number(a.shape_pt_lon));
+    const lat1 = toRadians(Number(a.shape_pt_lat));
+    const lat2 = toRadians(Number(b.shape_pt_lat));
+    const value = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+    return 6371000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function getActiveCalendarIds(calendar, calendarDates) {
+    const now = luxon.DateTime.now().setZone('Europe/Zagreb');
+    const dates = [now, ...(now.hour < 4 ? [now.minus({ days: 1 })] : [])];
+    const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const active = new Set();
+    for (const dateTime of dates) {
+        const date = dateTime.toFormat('yyyyMMdd');
+        const day = weekdays[dateTime.weekday - 1];
+        for (const service of calendar) {
+            const exception = calendarDates.find(item => item.service_id === service.service_id && item.date === date);
+            if (exception?.exception_type === '1' || exception?.exception_type === 1 || (!exception && service[day] === '1' && service.start_date <= date && service.end_date >= date)) {
+                active.add(service.service_id);
+            }
+        }
+    }
+    return [...active];
+}
+
+async function getFallbackGtfsUrl() {
+    const response = await fetch('https://zet.hr/gtfs2', { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error(`GTFS archive listing returned HTTP ${response.status}`);
+    const files = [...(await response.text()).matchAll(/<a href="\/gtfs-scheduled\/scheduled-([0-9-]+)\.zip">/g)].map(match => match[1]);
+    if (files.length < 2) throw new Error('GTFS archive listing has no fallback feed');
+    return `https://zet.hr/gtfs-scheduled/scheduled-${files[1]}.zip`;
+}
+
+const loadGtfs = async (url, usedFallback = false) => {
+    await createTables();
     console.log('Loading GTFS data...');
-    // Download GTFS
-    const gtfsZip = await fetch(url || CONFIG.GTFS_ZIPPED).then(response => response.buffer());
-    fs.writeFileSync('gtfs.zip', gtfsZip);
-    console.log('Downloaded GTFS data');
-    // Unzip GTFS
-    const zip = new AdmZip('gtfs.zip');
-    zip.extractAllTo('./gtfs', true);
-    console.log('Unzipped GTFS data');
-    // Clear tables
-    sqlite3.exec('DELETE FROM Calendar;');
-    sqlite3.exec('DELETE FROM CalendarDates;');
-    sqlite3.exec('DELETE FROM Routes;');
-    sqlite3.exec('DELETE FROM StopTimes;');
-    sqlite3.exec('DELETE FROM Trips;');
-    sqlite3.exec('DELETE FROM Shapes;');
-    sqlite3.exec('DELETE FROM Stops;');
+    try {
+        const response = await fetch(url || CONFIG.GTFS_ZIPPED, { signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error(`GTFS download returned HTTP ${response.status}`);
+        const gtfsZip = await response.buffer();
+        if (gtfsZip.length < 100) throw new Error('GTFS download is unexpectedly small');
+        const zip = new AdmZip(gtfsZip);
+        const feed = Object.fromEntries(Object.entries(GTFS_FILES).map(([key, definition]) => [key, parseGtfsCsv(zip, definition)]));
+        if (feed.routes.length === 0 || feed.trips.length === 0 || feed.stops.length === 0 || feed.stopTimes.length === 0) {
+            throw new Error('GTFS has no routes, trips, stops, or stop times');
+        }
+        if (getActiveCalendarIds(feed.calendar, feed.calendarDates).length === 0) {
+            if (usedFallback) throw new Error('GTFS fallback has no active services');
+            console.error('GTFS has no active services; trying fallback archive');
+            return loadGtfs(await getFallbackGtfsUrl(), true);
+        }
+        fs.writeFileSync('gtfs.zip', gtfsZip);
+        zip.extractAllTo('./gtfs', true);
+        console.log('Downloaded and validated GTFS data');
 
-    console.log('Cleared tables');
+        const routes = new Set(feed.routes.map(row => row.route_id).filter(Boolean));
+        const stops = new Map(feed.stops.filter(row => row.stop_id && isFiniteCoordinate(row.stop_lat, -90, 90) && isFiniteCoordinate(row.stop_lon, -180, 180)).map(row => [row.stop_id, row]));
+        const shapes = new Map();
+        for (const row of feed.shapes) {
+            if (!row.shape_id || !isFiniteCoordinate(row.shape_pt_lat, -90, 90) || !isFiniteCoordinate(row.shape_pt_lon, -180, 180) || !Number.isFinite(Number(row.shape_pt_sequence))) continue;
+            if (!shapes.has(row.shape_id)) shapes.set(row.shape_id, []);
+            shapes.get(row.shape_id).push(row);
+        }
+        for (const points of shapes.values()) {
+            points.sort((a, b) => Number(a.shape_pt_sequence) - Number(b.shape_pt_sequence));
+            let distance = 0;
+            points.forEach((point, index) => {
+                if (index > 0) distance += distanceInMeters(points[index - 1], point);
+                point.shape_dist_traveled = distance;
+            });
+        }
+        const serviceIds = new Set([...feed.calendar, ...feed.calendarDates].map(row => row.service_id).filter(Boolean));
+        const trips = new Map(feed.trips.filter(row => row.trip_id && routes.has(row.route_id) && serviceIds.has(row.service_id)).map(row => [row.trip_id, row]));
+        const stopTimes = [];
+        let skippedStopTimes = 0;
+        const stopTimesByTrip = new Map();
+        for (const row of feed.stopTimes) {
+            const arrival = parseServiceTime(row.arrival_time);
+            const departure = parseServiceTime(row.departure_time);
+            const trip = trips.get(row.trip_id);
+            const stop = stops.get(row.stop_id);
+            if (!trip || !stop || arrival === null || departure === null || !Number.isFinite(Number(row.stop_sequence))) {
+                skippedStopTimes++;
+                continue;
+            }
+            if (!stopTimesByTrip.has(row.trip_id)) stopTimesByTrip.set(row.trip_id, { trip, rows: [] });
+            stopTimesByTrip.get(row.trip_id).rows.push({ row, stop, arrival, departure });
+        }
+        const shapeDistancesByPattern = new Map();
+        for (const { trip, rows } of stopTimesByTrip.values()) {
+            rows.sort((a, b) => Number(a.row.stop_sequence) - Number(b.row.stop_sequence));
+            const patternKey = `${trip.shape_id}\0${rows.map(({ row }) => row.stop_id).join('\0')}`;
+            let shapeDistances = shapeDistancesByPattern.get(patternKey);
+            if (!shapeDistances) {
+                const points = shapes.get(trip.shape_id) || [];
+                let firstShapePoint = 0;
+                shapeDistances = rows.map(({ stop }) => {
+                    let nearest = { index: firstShapePoint, distance: Infinity, value: 0 };
+                    for (let index = firstShapePoint; index < points.length; index++) {
+                        const distance = distanceInMeters({ shape_pt_lat: stop.stop_lat, shape_pt_lon: stop.stop_lon }, points[index]);
+                        if (distance < nearest.distance) nearest = { index, distance, value: points[index].shape_dist_traveled };
+                    }
+                    firstShapePoint = nearest.index;
+                    return nearest.value;
+                });
+                shapeDistancesByPattern.set(patternKey, shapeDistances);
+            }
+            rows.forEach(({ row, arrival, departure }, index) => {
+                stopTimes.push({ ...row, arrival_time_int: arrival, departure_time_int: departure, shape_dist_traveled: shapeDistances[index] });
+            });
+        }
+        if (stopTimes.length === 0) throw new Error('GTFS has no valid stop times');
 
+        const insertRows = (table, columns, rows) => {
+            if (rows.length === 0) return;
+            const placeholders = `(${columns.map(() => '?').join(', ')})`;
+            const statement = sqlite3.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES ${placeholders}`);
+            for (const row of rows) statement.run(columns.map(column => row[column] ?? ''));
+        };
+        sqlite3.transaction(() => {
+            sqlite3.exec('DELETE FROM Calendar; DELETE FROM CalendarDates; DELETE FROM Routes; DELETE FROM StopTimes; DELETE FROM Trips; DELETE FROM Shapes; DELETE FROM Stops;');
+            insertRows('Calendar', GTFS_FILES.calendar.headers, feed.calendar);
+            insertRows('CalendarDates', GTFS_FILES.calendarDates.headers, feed.calendarDates);
+            insertRows('Routes', ['route_id', 'route_short_name', 'route_long_name', 'route_type', 'route_color', 'route_text_color'], feed.routes);
+            insertRows('Shapes', ['shape_id', 'shape_pt_lat', 'shape_pt_lon', 'shape_pt_sequence', 'shape_dist_traveled'], [...shapes.values()].flat());
+            insertRows('Trips', ['route_id', 'service_id', 'trip_id', 'trip_headsign', 'direction_id', 'block_id', 'shape_id'], [...trips.values()]);
+            insertRows('Stops', ['stop_id', 'stop_code', 'stop_name', 'stop_desc', 'stop_lat', 'stop_lon', 'zone_id', 'stop_url', 'location_type', 'parent_station'], [...stops.values()]);
+            insertRows('StopTimes', ['trip_id', 'arrival_time', 'arrival_time_int', 'departure_time', 'departure_time_int', 'stop_id', 'stop_sequence', 'pickup_type', 'drop_off_type', 'shape_dist_traveled'], stopTimes);
+            sqlite3.exec(`UPDATE Stops SET stop_type = 0;
+                UPDATE Stops SET stop_type = 1 WHERE stop_id IN (SELECT DISTINCT st.stop_id FROM StopTimes st JOIN Trips t ON st.trip_id = t.trip_id JOIN Routes r ON t.route_id = r.route_id WHERE r.route_type = 0);
+                UPDATE Stops SET stop_type = 2 WHERE stop_id IN (SELECT DISTINCT st.stop_id FROM StopTimes st JOIN Trips t ON st.trip_id = t.trip_id JOIN Routes r ON t.route_id = r.route_id WHERE r.route_type = 3) AND stop_type != 1;`);
+        })();
+        VALID_CALENDAR_IDS = [];
+        lastCalendarSync = 0;
+        console.log(`Imported GTFS data (${stopTimes.length} stop times, ${skippedStopTimes} invalid rows skipped)`);
+    } catch (error) {
+        console.error('GTFS import failed; keeping the previous feed:', error);
+        await insertIntoLog(`GTFS import failed: ${error.message}`);
+    }
+}
 
+/*
     try {
         // Insert data
         let calendar = Papa.parse(await fs.promises.readFile('./gtfs/calendar.txt', 'utf8'), { header: true }).data;
@@ -459,6 +614,7 @@ const loadGtfs = async (url) => {
     }
 
 }
+*/
 
 const port = 8910;
 
@@ -506,7 +662,29 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
         for (let stopTime of stopTimes) {
             let rtUpdate = RT_DATA.find(rt => rt.trip.tripId == stopTime.trip_id);
             if (rtUpdate) {
-                let stopTimeUpdate = await getDelayForStop(rtUpdate, stopTime.stop_sequence);
+                const canceled = !!rtUpdate.canceled;
+                let stopTimeUpdate = getDelayForStop(rtUpdate, stopTime.stop_sequence);
+                if (canceled) {
+                    if (req.query.current && secondsFromMidnight > stopTime.departure_time_int) continue;
+                    if (req.query.time && secondsFromMidnight + req.query.time < stopTime.departure_time_int) continue;
+                    formattedStopTimes.push({
+                        tripId: stopTime.trip_id,
+                        tripHeadsign: stopTime.trip_headsign,
+                        routeId: stopTime.route_id,
+                        routeShortName: stopTime.route_short_name,
+                        routeLongName: stopTime.route_long_name,
+                        routeType: stopTime.route_type,
+                        arrivalTime: stopTime.arrival_time_int,
+                        departureTime: stopTime.departure_time_int,
+                        arrivalDelay: 0,
+                        departureDelay: 0,
+                        blockId: stopTime.block_id,
+                        realTime: true,
+                        canceled: true,
+                        vehicleId: null
+                    });
+                    continue;
+                }
                 if (stopTimeUpdate) {
                     if (req.query.current) {
                         if (secondsFromMidnight > stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0)) {
@@ -525,13 +703,15 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                         routeId: stopTime.route_id,
                         routeShortName: stopTime.route_short_name,
                         routeLongName: stopTime.route_long_name,
+                        routeType: stopTime.route_type,
                         arrivalTime: stopTime.departure_time_int + (stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0),
                         departureTime: stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0),
                         arrivalDelay: stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0,
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
                         blockId: stopTime.block_id,
                         realTime: true,
-                        vehicleId: VP_MAP[stopTime.trip_id] || rtUpdate.vehicle?.id || 'XXX'
+                        vehicleId: VP_MAP[stopTime.trip_id] || rtUpdate.vehicle?.id || 'XXX',
+                        canceled: false
                     });
                 }
             } else {
@@ -552,13 +732,15 @@ app.get('/stops/:id/trips', cache('30 seconds'), async (req, res) => {
                     routeId: stopTime.route_id,
                     routeShortName: stopTime.route_short_name,
                     routeLongName: stopTime.route_long_name,
+                    routeType: stopTime.route_type,
                     arrivalTime: stopTime.arrival_time_int,
                     departureTime: stopTime.departure_time_int,
                     arrivalDelay: 0,
                     departureDelay: 0,
                     blockId: stopTime.block_id,
                     realTime: false,
-                    vehicleId: VP_MAP[stopTime.trip_id] || 'XXX'
+                    vehicleId: VP_MAP[stopTime.trip_id] || 'XXX',
+                    canceled: false
                 });
             }
         }
@@ -594,10 +776,11 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             return;
         }
         let stopTimes = await sqlite3.prepare('SELECT * FROM StopTimes JOIN Stops ON StopTimes.stop_id = Stops.stop_id WHERE trip_id = ? ORDER BY stop_sequence').all(tripId);
+        const rtUpdate = RT_DATA.find(rt => rt.trip.tripId == tripId);
+        const canceled = !!rtUpdate?.canceled;
         let formattedStopTimes = [];
         for (let stopTime of stopTimes) {
             // check if there is a real time update
-            let rtUpdate = RT_DATA.find(rt => rt.trip.tripId == tripId);
             if (rtUpdate) {
                 // find the stopTimeUpdate closest to the current stop, so we can apply the correct delay
                 // e.g. if stoptimeupdates are defined for stops 7, 9 - for stops 1-8 we apply the delay of stop 7, for stops 9+ we apply the delay of stop 9
@@ -612,7 +795,8 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
                         departureTime: stopTime.departure_time_int + (stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0),
                         arrivalDelay: stopTimeUpdate.arrival && stopTimeUpdate.arrival.delay ? stopTimeUpdate.arrival.delay : 0,
                         departureDelay: stopTimeUpdate.departure && stopTimeUpdate.departure.delay ? stopTimeUpdate.departure.delay : 0,
-                        realTime: true
+                        realTime: true,
+                        canceled
                     });
                 } else {
                     // if there is no update for this stop, use the original stop time
@@ -624,7 +808,8 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
                         departureTime: stopTime.departure_time_int,
                         arrivalDelay: 0,
                         departureDelay: 0,
-                        realTime: false
+                        realTime: false,
+                        canceled
                     });
                 }
             } else {
@@ -636,7 +821,8 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
                     departureTime: stopTime.departure_time_int,
                     arrivalDelay: 0,
                     departureDelay: 0,
-                    realTime: false
+                    realTime: false,
+                    canceled: false
                 });
             }
         }
@@ -650,8 +836,9 @@ app.get('/trips/:id', cache('30 seconds'), async (req, res) => {
             directionId: trip.direction_id,
             stopTimes: formattedStopTimes,
             blockId: trip.block_id,
-            realTime: RT_DATA.find(rt => rt.trip.tripId == tripId) ? true : false,
-            vehicleId: VP_MAP[tripId] || RT_DATA.find(rt => rt.trip.tripId == tripId)?.vehicle?.id || 'XXX'
+            realTime: !!rtUpdate,
+            canceled,
+            vehicleId: canceled ? null : VP_MAP[tripId] || rtUpdate?.vehicle?.id || 'XXX'
         });
     } catch (e) {
         insertIntoLog(e.message + ' ' + e.stack);
@@ -735,14 +922,16 @@ app.get('/routes/:id/trips', cache('30 seconds'), async (req, res) => {
         for (let trip of trips) {
             // check for query parameters
             let rt = RT_DATA.find(rt => rt.trip.tripId == trip.trip_id);
+            const canceled = !!rt?.canceled;
+            const delay = rt?.stopTimeUpdate?.[0]?.departure?.delay || rt?.stopTimeUpdate?.[0]?.arrival?.delay || 0;
             if (req.query.current) {
-                if (secondsFromMidnight > await endTimes.find(st => st.trip_id == trip.trip_id).end_time + (rt ? rt.stopTimeUpdate[0].departure.delay : 0)) {
+                if (secondsFromMidnight > await endTimes.find(st => st.trip_id == trip.trip_id).end_time + delay) {
                     continue;
                 }
             }
             if (req.query.time) {
                 // time is expressed in seconds, so skip trips that are too far in the future
-                if (secondsFromMidnight + req.query.time < await startTimes.find(st => st.trip_id == trip.trip_id).start_time + (rt ? rt.stopTimeUpdate[0].departure.delay : 0)) {
+                if (secondsFromMidnight + req.query.time < await startTimes.find(st => st.trip_id == trip.trip_id).start_time + delay) {
                     continue;
                 }
             }
@@ -756,8 +945,9 @@ app.get('/routes/:id/trips', cache('30 seconds'), async (req, res) => {
                 startTime: startTimes.find(st => st.trip_id == trip.trip_id).start_time,
                 endTime: endTimes.find(et => et.trip_id == trip.trip_id).end_time,
                 realTime: rt ? true : false,
+                canceled,
                 blockId: trip.block_id,
-                vehicleId: VP_MAP[trip.trip_id] || 'XXX',
+                vehicleId: canceled ? null : VP_MAP[trip.trip_id] || 'XXX',
             });
         }
         // sort by start time
@@ -921,8 +1111,8 @@ app.get('/historic/vehicle/:id', cache('1 minute'), async (req, res) => {
 
 function getRealTimeUpdate(tripId) {
     let RT_UPDATE = RT_DATA.find(rt => rt.trip.tripId === tripId);
-    let delay = RT_UPDATE ? (RT_UPDATE.stopTimeUpdate[0]?.departure?.delay || RT_UPDATE.stopTimeUpdate[0]?.arrival?.delay || 0) : 0;
-    return { delay, realTime: !!RT_UPDATE };
+    let delay = RT_UPDATE?.stopTimeUpdate?.[0]?.departure?.delay || RT_UPDATE?.stopTimeUpdate?.[0]?.arrival?.delay || 0;
+    return { delay, realTime: !!RT_UPDATE, canceled: !!RT_UPDATE?.canceled };
 }
 
 function calculateCurrentPosition(trip, tripStopTimes, shapesMap, currentTime, RT_UPDATE) {
@@ -1001,6 +1191,7 @@ function calculateBearing(previousShapePoint, nextShapePoint) {
 
 let TRIPS = [];
 let TRIP_IDS = []   
+let TRIP_IDS_BY_SUFFIX = new Map();
 let SHAPES_MAP = [];
 let STOP_TIMES_MAP = [];
 
@@ -1010,6 +1201,13 @@ async function preloadData() {
     TRIPS = await sqlite3.prepare('SELECT * FROM Trips JOIN Routes ON Trips.route_id = Routes.route_id WHERE service_id IN (' + calendar.map(() => '?').join(',') + ')').all(calendar);
     let shapeIds = await TRIPS.map(trip => trip.shape_id);
     TRIP_IDS = await TRIPS.map(trip => trip.trip_id);
+    const tripIdsBySuffix = new Map();
+    for (const tripId of TRIP_IDS) {
+        const suffix = tripId.split('_').slice(2).join('_');
+        if (!suffix) continue;
+        tripIdsBySuffix.set(suffix, tripIdsBySuffix.has(suffix) ? null : tripId);
+    }
+    TRIP_IDS_BY_SUFFIX = tripIdsBySuffix;
     console.log('Have trips', TRIPS.length, 'shape ids', shapeIds.length, 'trip ids', TRIP_IDS.length);
     SHAPES_MAP = await sqlite3.prepare(
     'SELECT * FROM Shapes WHERE shape_id IN (' + shapeIds.map(() => '?').join(',') + ') ORDER BY shape_pt_sequence'
@@ -1153,6 +1351,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
             let startTime = tripStopTimes[0].departure_time_int;
             let endTime = tripStopTimes[tripStopTimes.length - 1].arrival_time_int;
             let RT_UPDATE = getRealTimeUpdate(trip.trip_id);
+            if (RT_UPDATE.canceled) continue;
             endTime += RT_UPDATE.delay;
 
             if (currentTime > startTime && currentTime < endTime) {
@@ -1192,6 +1391,7 @@ app.get('/vehicles/locations', cache('10 seconds'), async (req, res) => {
                         delay: RT_UPDATE.delay,
                         bearing: bearing,
                         realTime: RT_UPDATE.realTime,
+                        canceled: false,
                         vehicleId: VP_MAP[trip.trip_id] || RT_UPDATE.vehicle?.id || 'XXX',
                         interpolated: interpolated,
                         timestamp: timestamp
@@ -1216,7 +1416,8 @@ let lastCalendarSync = 0;
 
 async function getCalendarIdsForDate(calendar, calendar_dates, date) {
     let validCalendarIds = [];
-    let dayOfWeek = luxon.DateTime.fromFormat(date, 'yyyyMMdd').setZone('Europe/Zagreb').toFormat('E');
+    const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const dayOfWeek = weekdays[luxon.DateTime.fromFormat(date, 'yyyyMMdd').setZone('Europe/Zagreb').weekday - 1];
     for (let cal of calendar) {
         if (cal[dayOfWeek] == 1 && cal.start_date <= date && cal.end_date >= date) {
             // check if there is an exception
@@ -1262,6 +1463,7 @@ async function getCalendarIds() {
         validCalendarIds = validCalendarIds.concat(calendarIds);
     }
     VALID_CALENDAR_IDS = [...new Set(validCalendarIds)];
+    lastCalendarSync = timeNow;
     return validCalendarIds;
 }
 
@@ -1278,6 +1480,41 @@ let VP_DATA = [];
 let VP_MAP = {};
 let VP_MAP2 = {};
 let VP_MAP2_OLD = {};
+let lastValidRtSnapshot = 0;
+const RT_SNAPSHOT_MAX_AGE = 5 * 60 * 1000;
+
+function protobufNumber(value) {
+    if (value === undefined || value === null) return null;
+    const number = typeof value === 'object' && typeof value.toNumber === 'function' ? value.toNumber() : Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function hasValidPosition(position) {
+    return position && Number.isFinite(position.latitude) && Number.isFinite(position.longitude) && Math.abs(position.latitude) <= 90 && Math.abs(position.longitude) <= 180;
+}
+
+function resolveRealtimeTripId(tripId, knownTripIds) {
+    if (knownTripIds.has(tripId)) return tripId;
+    const suffix = tripId?.split('_').slice(2).join('_');
+    const resolvedTripId = suffix ? TRIP_IDS_BY_SUFFIX.get(suffix) : null;
+    return resolvedTripId && knownTripIds.has(resolvedTripId) ? resolvedTripId : null;
+}
+
+function isCanceledTrip(scheduleRelationship) {
+    return scheduleRelationship === CANCELED_TRIP || scheduleRelationship === 'CANCELED' || scheduleRelationship === String(CANCELED_TRIP);
+}
+
+function clearStaleRtSnapshot() {
+    if (lastValidRtSnapshot && Date.now() - lastValidRtSnapshot > RT_SNAPSHOT_MAX_AGE) {
+        RT_DATA = [];
+        VP_DATA = [];
+        VP_MAP = {};
+        VP_MAP2_OLD = VP_MAP2;
+        VP_MAP2 = {};
+        lastValidRtSnapshot = 0;
+        console.warn('Cleared GTFS-RT snapshot after five minutes without a valid update');
+    }
+}
 
 async function logVehicles() {
     // Log vehicles based on RT data
@@ -1285,6 +1522,7 @@ async function logVehicles() {
     let sql_values = [];
     let date = luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd');
     for (let rt of RT_DATA) {
+        if (rt.canceled) continue;
         let trip = TRIPS.find(trip => trip.trip_id == rt.trip.tripId);
         if (!trip) continue;
         let vehicle = VP_MAP2[rt.trip.tripId] || rt;
@@ -1382,29 +1620,57 @@ app.get('/historic/trips/:route_short_name/:date', cache('1 minute'), async (req
 async function getRtData() {
     while (true) {
         try {
-            let rtData = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES, { signal: AbortSignal.timeout(10000) });
-            let feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await rtData.buffer());
-            let data = [];
-            let vehicleData = [];
-            let acceptableDates = [
-                // Today
-                luxon.DateTime.now().setZone('Europe/Zagreb').toFormat('yyyyMMdd'),
-                // Yesterday, if it's before 4AM
-                ...(luxon.DateTime.now().setZone('Europe/Zagreb').hour < 4 ? [luxon.DateTime.now().setZone('Europe/Zagreb').minus({ days: 1 }).toFormat('yyyyMMdd')] : [])
-            ]
-            for (let entity of feed.entity) {
-                // Check if we have this tripId cached, otherwise discard
-                if (entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.length > 0 && TRIP_IDS.includes(entity.tripUpdate.trip.tripId) && acceptableDates.includes(entity.tripUpdate.trip.startDate)) {
-                    data.push(entity.tripUpdate);
+            const response = await fetch(CONFIG.GTFS_RT_TRIP_UPDATES, { signal: AbortSignal.timeout(10000) });
+            if (!response.ok) throw new Error(`GTFS-RT download returned HTTP ${response.status}`);
+            const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(await response.buffer());
+            if (!feed.header?.gtfsRealtimeVersion) throw new Error('GTFS-RT feed has no header version');
+            const feedTimestamp = protobufNumber(feed.header.timestamp);
+            if (feedTimestamp !== null && feedTimestamp > 0 && Math.abs(Date.now() - feedTimestamp * 1000) > RT_SNAPSHOT_MAX_AGE) {
+                throw new Error(`GTFS-RT feed is stale (${new Date(feedTimestamp * 1000).toISOString()})`);
+            }
+            const now = luxon.DateTime.now().setZone('Europe/Zagreb');
+            const acceptableDates = new Set([now.toFormat('yyyyMMdd'), ...(now.hour < 4 ? [now.minus({ days: 1 }).toFormat('yyyyMMdd')] : [])]);
+            const knownTripIds = new Set(TRIP_IDS);
+            const dataByTrip = new Map();
+            const vehiclesByTrip = new Map();
+            let invalidEntities = 0;
+            let unmatchedTripIds = 0;
+            for (const entity of feed.entity || []) {
+                const update = entity.tripUpdate;
+                const updateTrip = update?.trip;
+                if (update) {
+                    const tripId = resolveRealtimeTripId(updateTrip?.tripId, knownTripIds);
+                    const canceled = isCanceledTrip(updateTrip?.scheduleRelationship);
+                    if (!tripId || (updateTrip.startDate && !acceptableDates.has(updateTrip.startDate)) || ((!Array.isArray(update.stopTimeUpdate) || update.stopTimeUpdate.length === 0) && !canceled)) {
+                        invalidEntities++;
+                        if (!tripId) unmatchedTripIds++;
+                    } else {
+                        update.trip.tripId = tripId;
+                        update.canceled = canceled;
+                        dataByTrip.set(tripId, update);
+                    }
                 }
-                if (entity.vehicle && TRIP_IDS.includes(entity.vehicle.trip.tripId) && acceptableDates.includes(entity.vehicle.trip.startDate)) {
-                    vehicleData.push(entity.vehicle);
+                const vehicle = entity.vehicle;
+                const vehicleTrip = vehicle?.trip;
+                if (vehicle) {
+                    const tripId = resolveRealtimeTripId(vehicleTrip?.tripId, knownTripIds);
+                    if (!tripId || (vehicleTrip.startDate && !acceptableDates.has(vehicleTrip.startDate)) || !hasValidPosition(vehicle.position)) {
+                        invalidEntities++;
+                        if (!tripId) unmatchedTripIds++;
+                    } else {
+                        vehicle.trip.tripId = tripId;
+                        vehiclesByTrip.set(tripId, vehicle);
+                    }
                 }
             }
-            let vehicle_map = {}
-            let vehicle_map2 = {}
-            for (let vehicle of vehicleData) {
-                vehicle_map[vehicle.trip.tripId] = vehicle.vehicle.id;
+            const data = [...dataByTrip.values()];
+            const vehicleData = [...vehiclesByTrip.values()].filter(vehicle => !dataByTrip.get(vehicle.trip.tripId)?.canceled);
+            if (data.length === 0 && vehicleData.length === 0) throw new Error(`GTFS-RT feed has no valid entities (${invalidEntities} invalid, ${unmatchedTripIds} unmatched trip IDs)`);
+            if (invalidEntities > 0) console.warn(`Skipped ${invalidEntities} invalid GTFS-RT entities (${unmatchedTripIds} unmatched trip IDs)`);
+            const vehicle_map = {};
+            const vehicle_map2 = {};
+            for (const vehicle of vehicleData) {
+                vehicle_map[vehicle.trip.tripId] = vehicle.vehicle?.id || '?';
                 vehicle_map2[vehicle.trip.tripId] = vehicle;
             }
             RT_DATA = data;
@@ -1412,11 +1678,13 @@ async function getRtData() {
             VP_MAP = vehicle_map;
             VP_MAP2_OLD = VP_MAP2;
             VP_MAP2 = vehicle_map2;
+            lastValidRtSnapshot = Date.now();
             console.log('Updated RT data - ' + RT_DATA.length + ' updates, ' + VP_DATA.length + ' vehicles');
-            logVehicles();
+            await logVehicles();
         } catch (e) {
             insertIntoLog(e.message + ' ' + e.stack);
             console.error(e);
+            clearStaleRtSnapshot();
         }
         await new Promise(resolve => setTimeout(resolve, 10000));
     }

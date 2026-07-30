@@ -261,6 +261,7 @@
           }
           if (item.type === 'vehicle') {
             const f = item.feature;
+            const visual = getRouteVisual(f.properties.routeShortName, f.properties.routeType, f.properties.realTime);
             return `
           <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-green-100 transition cursor-pointer bg-white"
            onclick='location.hash = "#trip/" + "${f.properties.tripId}"'>
@@ -270,7 +271,7 @@
             <div class="flex flex-row">
           <span class="font-medium text-base">${f.properties.vehicleId}</span>
           <span>
-            <span class="ml-2 badge badge-primary" style="color: white; background-color: #1264AB; font-weight: bold;">
+            <span class="ml-2 badge badge-primary" style="color: ${visual.textColor}; background-color: ${visual.color}; font-weight: bold;">
           ${f.properties.routeShortName}
             </span>
           <span class="text-xs text-gray-500">→ ${f.properties.tripHeadsign}</span>
@@ -281,6 +282,7 @@
           }
           if (item.type === 'route') {
             const r = item.route;
+            const visual = getRouteVisual(r.routeShortName, r.routeType);
             return `
           <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-yellow-100 transition cursor-pointer bg-white"
            onclick='location.hash = "#route/" + "${r.routeId}"'>
@@ -288,7 +290,7 @@
           <i class="bi bi-signpost-split-fill"></i>
             </span>
             <div class="flex flex-row">
-          <span class="ml-2 badge badge-primary" style="color: white; background-color: #1264AB; font-weight: bold;">${r.routeShortName}</span>
+          <span class="ml-2 badge badge-primary" style="color: ${visual.textColor}; background-color: ${visual.color}; font-weight: bold;">${r.routeShortName}</span>
           <span class="text-xs text-gray-500">→ ${r.routeLongName}</span>
             </div>
           </div>
@@ -304,6 +306,7 @@
     });
   </script>
   <!-- Scripts -->
+  <script src="js/route_visuals.js"></script>
   <script src="js/zetko_router.js"></script>
   <script src="js/zetko_map.js"></script>
   <script src="js/zetko_route.js"></script>

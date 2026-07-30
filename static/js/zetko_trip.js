@@ -24,7 +24,9 @@ async function generateTripDetails(tripId, initialRender = true) {
     vehicleMarker = await map.getSource('vehicles')?._data?.features?.find(f => f.properties.tripId === tripId);
   }
   let locationStatus = '';
-  if (trip.realTime && vehicleMarker && !vehicleMarker?.properties?.interpolated) {
+  if (trip.canceled) {
+    locationStatus = 'Ovaj polazak je otkazan.';
+  } else if (trip.realTime && vehicleMarker && !vehicleMarker?.properties?.interpolated) {
     locationStatus = 'Prikazana je stvarna lokacija.';
   } else if (
     (trip.realTime && vehicleMarker && vehicleMarker?.properties?.interpolated) ||
@@ -36,22 +38,23 @@ async function generateTripDetails(tripId, initialRender = true) {
   }
 
   console.log(vehicleDetails[trip.vehicleId])
+  const routeVisual = getRouteVisual(trip.routeShortName, trip.routeType);
 
   let content = `
 <div class="h-[50vh] md:h-[70vh] flex flex-col"> <!-- Or h-[600px] if not full screen -->
   <div class="flex justify-between items-start mb-2">
     <div>
       <h2 class="text-l font-semibold break-words" onclick="location.hash = '#route/${trip.routeId}';">
-        <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
+        <span class="badge" style="color: ${routeVisual.textColor}; background-color: ${routeVisual.color}; font-weight: bold;">
           ${trip.routeShortName}
         </span> → ${trip.tripHeadsign}
-        ${trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i>' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
+        ${trip.canceled ? '<i class="bi bi-x-circle-fill text-red-600" title="Polazak otkazan"></i>' : trip.realTime ? '<i class="bi bi-broadcast blinker" title="U stvarnom vremenu"></i>' : '<i class="bi bi-clock text-gray-400" title="Po voznom redu"></i>'}
       </h2>
-      <p class="text-sm text-gray-500">
-        Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}<br/>
+      <p class="text-sm ${trip.canceled ? 'font-semibold text-red-600' : 'text-gray-500'}">
+        ${trip.canceled ? 'Polazak otkazan' : `Vozilo: ${trip.vehicleId || '-'} / VR: ${trip.blockId || '-'}`}<br/>
         ${locationStatus}
         <br/>
-        ${vehicleDetails[trip.vehicleId] ?
+        ${!trip.canceled && vehicleDetails[trip.vehicleId] ?
         `
         ${vehicleDetails[trip.vehicleId].airCondition
             ? `<span style="background:#1264AB; border-radius:50%; padding:2px 6px; display:inline-block;"><i class="bi bi-snow" style="color:white;" title="Klima uređaj"></i></span> `
@@ -86,8 +89,9 @@ async function generateTripDetails(tripId, initialRender = true) {
 
     const isDelayed = Math.abs(delay) > 60;
     const isRealtime = stop.realTime;
+    const isCanceled = trip.canceled || stop.canceled;
 
-    if (!passed && !nextStopId) {
+    if (!isCanceled && !passed && !nextStopId) {
       nextStopId = `stop-${stop.stopId}`;
     }
 
@@ -98,20 +102,22 @@ async function generateTripDetails(tripId, initialRender = true) {
     };
 
     content += `
-      <div id="stop-${stop.stopId}" class="p-3 rounded-lg shadow-md transition cursor-pointer hover:scale-[1.01] ${passed ? 'bg-gray-100 dark:bg-base-300' : 'bg-white dark:bg-base-200'}"
+      <div id="stop-${stop.stopId}" class="p-3 rounded-lg shadow-md transition cursor-pointer hover:scale-[1.01] ${isCanceled ? 'bg-red-50 dark:bg-red-950 opacity-75' : passed ? 'bg-gray-100 dark:bg-base-300' : 'bg-white dark:bg-base-200'}"
            onclick='location.hash = "#stop/${stop.stopId}";'>
         <div class="flex justify-between items-center">
           <div>
-            <p class="font-semibold ${passed ? 'line-through text-gray-500' : ''}">${stop.stopName}</p>
+            <p class="font-semibold ${isCanceled || passed ? 'line-through text-gray-500' : ''}">${stop.stopName}</p>
             <p class="text-xs text-gray-500">(${stop.stopId})</p>
           </div>
           <div class="text-right text-sm leading-tight">
-            ${isRealtime && !passed
+            ${isCanceled
+        ? '<span class="text-xs font-semibold text-red-600">Otkaženo</span>'
+        : isRealtime && !passed
         ? `<i class="bi bi-broadcast blinker" title="Real-time"></i>`
         : `<i class="bi bi-clock text-gray-400" title="Scheduled"></i>`}
-            ${isDelayed && !passed ? `<span class="text-gray-400 line-through ml-1">${formatTime(sched)}</span>` : ''}
-            <span class="ml-1 font-medium">${formatTime(dep)}</span>
-            ${isDelayed && !passed ? `<div class="text-xs ${isLate(delay) ? 'text-red-500' : 'text-yellow-500'}">${delayText(delay)}</div>` : ''}
+            ${isDelayed && !passed && !isCanceled ? `<span class="text-gray-400 line-through ml-1">${formatTime(sched)}</span>` : ''}
+            <span class="ml-1 font-medium ${isCanceled ? 'line-through text-red-600' : ''}">${formatTime(dep)}</span>
+            ${isDelayed && !passed && !isCanceled ? `<div class="text-xs ${isLate(delay) ? 'text-red-500' : 'text-yellow-500'}">${delayText(delay)}</div>` : ''}
           </div>
         </div>
       </div>`;
@@ -132,8 +138,7 @@ async function generateTripDetails(tripId, initialRender = true) {
     // This is a single feature GeoJSON
     if (tripShape && tripShape.geometry && tripShape.geometry.type === 'LineString') {
       // Depending on route type, set the color
-      const routeColor = trip.routeType == 3 ? '#126400' : '#3070A1';
-      map.setPaintProperty('trip-shape', 'line-color', routeColor);
+      map.setPaintProperty('trip-shape', 'line-color', routeVisual.color);
       map.getSource('trip-shape').setData({
         type: 'FeatureCollection',
         features: [tripShape]

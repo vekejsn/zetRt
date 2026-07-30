@@ -131,12 +131,7 @@ function setupVehicleSources() {
         const routeType = parseInt(routeTypeStr, 10);
         const realTime = realTimeStr === 'true';
 
-        let color = '#121212';
-        if (routeType == 3) {
-            color = realTime ? '#126400' : '#727272'; // Green for bus
-        } else if (routeType == 0) {
-            color = realTime ? '#1264AB' : '#535353'; // Blue for tram
-        }
+        const { color } = getRouteVisual(routeShortName, routeType, realTime);
 
         const imageData = id.endsWith('-bg')
             ? await generateVehicleBgMarker(color)

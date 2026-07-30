@@ -10,10 +10,11 @@ function getRouteById(routeId) {
 
 // Render the route header
 function renderRouteHeader(route) {
+    const visual = getRouteVisual(route.routeShortName, route.routeType);
     return `
         <div class="mb-4">
             <h2 class="text-l font-semibold">
-                <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">
+                <span class="badge" style="color: ${visual.textColor}; background-color: ${visual.color}; font-weight: bold;">
                     ${route.routeShortName}
                 </span> ${route.routeLongName}
             </h2>
@@ -50,17 +51,19 @@ function renderRouteScheduleTable(trips) {
             <td class="flex flex-wrap gap-2">`;
         for (const trip of groupedByHour[hour]) {
             const mins = trip.formattedTime.split(':')[1];
+            const tripStatus = trip.canceled
+                ? `<span class="text-[0.6rem] font-semibold text-red-600">Otkaženo</span>`
+                : `<span>VR ${trip.blockId}</span><span>${trip.vehicleId}</span>`;
             html += `
                 <div onclick="goToTrip('${trip.tripId}')"
-                    class="arrivalar cursor-pointer flex flex-col items-center justify-center px-1 rounded"
-                    title="VR ${trip.blockId}">
+                    class="arrivalar cursor-pointer flex flex-col items-center justify-center px-1 rounded ${trip.canceled ? 'bg-red-50 dark:bg-red-950' : ''}"
+                    title="${trip.canceled ? 'Polazak otkazan' : `VR ${trip.blockId}`} ">
                     <div class="flex flex-col justify-center items-center mr-1" style="line-height:1.1;">
-                        <span class="text-lg font-semibold ${trip.realTime ? 'blinker' : ''}" style="line-height:1.2;">
+                        <span class="text-lg font-semibold ${trip.canceled ? 'text-red-600 line-through' : trip.realTime ? 'blinker' : ''}" style="line-height:1.2;">
                         ${mins}</span>
                     </div>
                     <div class="flex flex-col items-center text-[0.6rem] leading-tight justify-center">
-                        <span>VR ${trip.blockId}</span>
-                        <span>${trip.vehicleId}</span>
+                        ${tripStatus}
                     </div>
                 </div>
             `;

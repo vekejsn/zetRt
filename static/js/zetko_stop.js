@@ -20,6 +20,17 @@ function renderArrivalCard(arr, onClick) {
   const time = formatTime(arr.departureTime);
   const original = formatTime(arr.departureTime - (arr.departureDelay || 0));
   const late = original !== time;
+  if (arr.canceled) {
+    return `
+      <div onclick="${onClick}"
+           class="cursor-pointer transition transform hover:scale-105 bg-red-50 dark:bg-red-950 rounded-lg shadow-md p-3 w-full sm:w-28 md:w-32 text-center">
+        <div class="flex items-center justify-center mb-1 gap-1 text-red-700 dark:text-red-300">
+          <i class="bi bi-x-circle-fill" title="Otkaženo"></i>
+          <span class="font-semibold line-through">${time}</span>
+        </div>
+        <div class="text-xs font-semibold text-red-700 dark:text-red-300">Otkaženo</div>
+      </div>`;
+  }
   const realTimeIcon = arr.realTime
     ? `<i class="bi bi-broadcast blinker mr-1" title="Real-time"></i>`
     : `<i class="bi bi-clock mr-1" title="Scheduled"></i>`;
@@ -38,13 +49,14 @@ function renderArrivalCard(arr, onClick) {
 
 function renderRouteGroup(group) {
   const sample = group[0];
+  const visual = getRouteVisual(sample.routeShortName, sample.routeType);
   const groupId = `group-${sample.routeId}-${sample.tripHeadsign.replace(/\s+/g, '-')}`.toLowerCase();
   const isExpanded = expandedRouteGroups.has(groupId);
 
   let html = `
     <div class="mb-6" id="${groupId}-wrapper">
       <div class="flex items-center gap-2 mb-2" onclick="generateRouteArrivals('${sample.routeId}')">
-        <span class="badge" style="color: white; background-color: #1264AB; font-weight: bold;">${sample.routeShortName}</span>
+        <span class="badge" style="color: ${visual.textColor}; background-color: ${visual.color}; font-weight: bold;">${sample.routeShortName}</span>
         <span class="text-sm text-gray-600">${sample.tripHeadsign}</span>
       </div>
       <div class="grid grid-cols-2 gap-3" id="${groupId}">`;
